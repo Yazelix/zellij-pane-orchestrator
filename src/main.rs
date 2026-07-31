@@ -24,7 +24,6 @@ use yazelix_zellij_pane_orchestrator::layout_state_contract::{
 use yazelix_zellij_pane_orchestrator::right_sidebar_command_contract::RightSidebarCommandConfig;
 use yazelix_zellij_pane_orchestrator::screen_saver_contract::ScreenSaverConfig;
 use yazelix_zellij_pane_orchestrator::status_bar_cache_contract::StatusBarCacheRuntime;
-use yazelix_zellij_pane_orchestrator::status_usage_provider_contract::StatusUsageProviderConfig;
 use yazelix_zellij_pane_orchestrator::tab_identity_contract::{
     retain_current_tab_state, TabIdentityState,
 };
@@ -81,10 +80,6 @@ struct State {
     status_bar_cache_last_payload: Option<String>,
     workspace_status_pipe_payload_by_plugin: HashMap<u32, String>,
     tab_activity_pipe_payload: Option<String>,
-    status_bar_claude_usage_next_refresh: Option<Instant>,
-    status_bar_codex_usage_next_refresh: Option<Instant>,
-    status_bar_opencode_go_usage_next_refresh: Option<Instant>,
-    status_usage_provider_config: StatusUsageProviderConfig,
     orchestrator_heartbeat: heartbeat::OrchestratorHeartbeat,
     timer_armed_for: Option<Instant>,
     runtime_config_generation: String,
@@ -133,8 +128,6 @@ impl ZellijPlugin for State {
             .get("managed_agent_command_marker")
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
-        self.status_usage_provider_config =
-            StatusUsageProviderConfig::from_plugin_configuration(&configuration);
         self.runtime_config_generation = configuration
             .get("runtime_config_generation")
             .map(|value| value.trim().to_string())
@@ -156,9 +149,6 @@ impl ZellijPlugin for State {
         }
         subscribe(&subscriptions);
         self.schedule_initial_screen_saver_timeout();
-        self.schedule_initial_status_bar_claude_usage_refresh();
-        self.schedule_initial_status_bar_codex_usage_refresh();
-        self.schedule_initial_status_bar_opencode_go_usage_refresh();
         self.arm_next_timer();
     }
 
@@ -216,9 +206,6 @@ impl ZellijPlugin for State {
                 self.record_orchestrator_timer();
                 self.handle_tab_local_pane_reconcile_timer();
                 self.handle_screen_saver_timer();
-                self.handle_status_bar_claude_usage_timer();
-                self.handle_status_bar_codex_usage_timer();
-                self.handle_status_bar_opencode_go_usage_timer();
                 self.handle_orchestrator_heartbeat_timer();
             }
             Event::PaneClosed(pane_id) => {
@@ -494,9 +481,6 @@ impl State {
             now,
             [
                 self.screen_saver_next_timeout,
-                self.status_bar_claude_usage_next_refresh,
-                self.status_bar_codex_usage_next_refresh,
-                self.status_bar_opencode_go_usage_next_refresh,
                 self.tab_local_pane_reconcile_next_flush,
                 self.orchestrator_heartbeat.next_flush,
             ],

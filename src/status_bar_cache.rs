@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::time::{Duration, Instant};
 
 use yazelix_zellij_pane_orchestrator::status_bar_cache_contract::{
     resolve_status_bar_cache_runtime, StatusBarCacheRuntime,
@@ -14,21 +13,6 @@ use zellij_tile::prelude::*;
 
 use crate::workspace::{tab_name_from_workspace_root, WorkspaceStateSource};
 use crate::State;
-
-const INITIAL_CLAUDE_USAGE_REFRESH_DELAY: Duration = Duration::from_secs(2);
-const CLAUDE_USAGE_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
-const CLAUDE_USAGE_PROVIDER_TIMEOUT_MS: &str = "5000";
-const CLAUDE_USAGE_MAX_AGE_SECONDS: &str = "10";
-const CLAUDE_USAGE_ERROR_BACKOFF_SECONDS: &str = "1800";
-const INITIAL_CODEX_USAGE_REFRESH_DELAY: Duration = Duration::from_secs(2);
-const CODEX_USAGE_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
-const CODEX_USAGE_PROVIDER_TIMEOUT_MS: &str = "5000";
-const CODEX_USAGE_MAX_AGE_SECONDS: &str = "10";
-const CODEX_USAGE_ERROR_BACKOFF_SECONDS: &str = "1800";
-const INITIAL_OPENCODE_GO_USAGE_REFRESH_DELAY: Duration = Duration::from_secs(2);
-const OPENCODE_GO_USAGE_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
-const OPENCODE_GO_USAGE_MAX_AGE_SECONDS: &str = "10";
-const OPENCODE_GO_USAGE_ERROR_BACKOFF_SECONDS: &str = "1800";
 
 impl State {
     pub(crate) fn refresh_status_bar_cache(&mut self) {
@@ -137,192 +121,11 @@ impl State {
         ))
     }
 
-    pub(crate) fn schedule_initial_status_bar_claude_usage_refresh(&mut self) {
-        if !self.status_usage_provider_config.claude_usage {
-            self.status_bar_claude_usage_next_refresh = None;
-            return;
-        }
-
-        self.schedule_status_bar_claude_usage_refresh_after(INITIAL_CLAUDE_USAGE_REFRESH_DELAY);
-    }
-
-    pub(crate) fn schedule_initial_status_bar_codex_usage_refresh(&mut self) {
-        if !self.status_usage_provider_config.codex_usage {
-            self.status_bar_codex_usage_next_refresh = None;
-            return;
-        }
-
-        self.schedule_status_bar_codex_usage_refresh_after(INITIAL_CODEX_USAGE_REFRESH_DELAY);
-    }
-
-    pub(crate) fn schedule_initial_status_bar_opencode_go_usage_refresh(&mut self) {
-        if !self.status_usage_provider_config.opencode_go_usage {
-            self.status_bar_opencode_go_usage_next_refresh = None;
-            return;
-        }
-
-        self.schedule_status_bar_opencode_go_usage_refresh_after(
-            INITIAL_OPENCODE_GO_USAGE_REFRESH_DELAY,
-        );
-    }
-
-    pub(crate) fn handle_status_bar_claude_usage_timer(&mut self) {
-        if !self.status_usage_provider_config.claude_usage {
-            self.status_bar_claude_usage_next_refresh = None;
-            return;
-        }
-
-        let now = Instant::now();
-        let Some(next_refresh) = self.status_bar_claude_usage_next_refresh else {
-            self.schedule_initial_status_bar_claude_usage_refresh();
-            return;
-        };
-        if now < next_refresh {
-            return;
-        }
-
-        if !self.permissions_granted {
-            self.schedule_status_bar_claude_usage_refresh_after(INITIAL_CLAUDE_USAGE_REFRESH_DELAY);
-            return;
-        }
-
-        self.refresh_status_bar_claude_usage_cache();
-        self.schedule_status_bar_claude_usage_refresh_after(CLAUDE_USAGE_REFRESH_INTERVAL);
-    }
-
-    pub(crate) fn handle_status_bar_codex_usage_timer(&mut self) {
-        if !self.status_usage_provider_config.codex_usage {
-            self.status_bar_codex_usage_next_refresh = None;
-            return;
-        }
-
-        let now = Instant::now();
-        let Some(next_refresh) = self.status_bar_codex_usage_next_refresh else {
-            self.schedule_initial_status_bar_codex_usage_refresh();
-            return;
-        };
-        if now < next_refresh {
-            return;
-        }
-
-        if !self.permissions_granted {
-            self.schedule_status_bar_codex_usage_refresh_after(INITIAL_CODEX_USAGE_REFRESH_DELAY);
-            return;
-        }
-
-        self.refresh_status_bar_codex_usage_cache();
-        self.schedule_status_bar_codex_usage_refresh_after(CODEX_USAGE_REFRESH_INTERVAL);
-    }
-
-    pub(crate) fn handle_status_bar_opencode_go_usage_timer(&mut self) {
-        if !self.status_usage_provider_config.opencode_go_usage {
-            self.status_bar_opencode_go_usage_next_refresh = None;
-            return;
-        }
-
-        let now = Instant::now();
-        let Some(next_refresh) = self.status_bar_opencode_go_usage_next_refresh else {
-            self.schedule_initial_status_bar_opencode_go_usage_refresh();
-            return;
-        };
-        if now < next_refresh {
-            return;
-        }
-
-        if !self.permissions_granted {
-            self.schedule_status_bar_opencode_go_usage_refresh_after(
-                INITIAL_OPENCODE_GO_USAGE_REFRESH_DELAY,
-            );
-            return;
-        }
-
-        self.refresh_status_bar_opencode_go_usage_cache();
-        self.schedule_status_bar_opencode_go_usage_refresh_after(
-            OPENCODE_GO_USAGE_REFRESH_INTERVAL,
-        );
-    }
-
-    fn schedule_status_bar_claude_usage_refresh_after(&mut self, delay: Duration) {
-        self.status_bar_claude_usage_next_refresh = Some(Instant::now() + delay);
-    }
-
-    fn schedule_status_bar_codex_usage_refresh_after(&mut self, delay: Duration) {
-        self.status_bar_codex_usage_next_refresh = Some(Instant::now() + delay);
-    }
-
-    fn schedule_status_bar_opencode_go_usage_refresh_after(&mut self, delay: Duration) {
-        self.status_bar_opencode_go_usage_next_refresh = Some(Instant::now() + delay);
-    }
-
     pub(crate) fn status_bar_runtime(&mut self) -> Option<StatusBarCacheRuntime> {
         if self.status_bar_cache_runtime.is_none() {
             let session_env = get_session_environment_variables();
             self.status_bar_cache_runtime = resolve_status_bar_cache_runtime(&session_env);
         }
         self.status_bar_cache_runtime.clone()
-    }
-
-    fn refresh_status_bar_claude_usage_cache(&mut self) {
-        self.record_status_refresh_start("claude_usage");
-        let Some(runtime) = self.status_bar_runtime() else {
-            return;
-        };
-
-        let command = [
-            runtime.yzx_control_path.as_str(),
-            "zellij",
-            "status-cache-refresh-claude-usage",
-            "--path",
-            runtime.cache_path.as_str(),
-            "--max-age-seconds",
-            CLAUDE_USAGE_MAX_AGE_SECONDS,
-            "--error-backoff-seconds",
-            CLAUDE_USAGE_ERROR_BACKOFF_SECONDS,
-            "--timeout-ms",
-            CLAUDE_USAGE_PROVIDER_TIMEOUT_MS,
-        ];
-        run_command_with_env_variables_and_cwd(&command, runtime.env, runtime.cwd, BTreeMap::new());
-    }
-
-    fn refresh_status_bar_codex_usage_cache(&mut self) {
-        self.record_status_refresh_start("codex_usage");
-        let Some(runtime) = self.status_bar_runtime() else {
-            return;
-        };
-
-        let command = [
-            runtime.yzx_control_path.as_str(),
-            "zellij",
-            "status-cache-refresh-codex-usage",
-            "--path",
-            runtime.cache_path.as_str(),
-            "--max-age-seconds",
-            CODEX_USAGE_MAX_AGE_SECONDS,
-            "--error-backoff-seconds",
-            CODEX_USAGE_ERROR_BACKOFF_SECONDS,
-            "--timeout-ms",
-            CODEX_USAGE_PROVIDER_TIMEOUT_MS,
-        ];
-        run_command_with_env_variables_and_cwd(&command, runtime.env, runtime.cwd, BTreeMap::new());
-    }
-
-    fn refresh_status_bar_opencode_go_usage_cache(&mut self) {
-        self.record_status_refresh_start("opencode_go_usage");
-        let Some(runtime) = self.status_bar_runtime() else {
-            return;
-        };
-
-        let command = [
-            runtime.yzx_control_path.as_str(),
-            "zellij",
-            "status-cache-refresh-opencode-go-usage",
-            "--path",
-            runtime.cache_path.as_str(),
-            "--max-age-seconds",
-            OPENCODE_GO_USAGE_MAX_AGE_SECONDS,
-            "--error-backoff-seconds",
-            OPENCODE_GO_USAGE_ERROR_BACKOFF_SECONDS,
-        ];
-        run_command_with_env_variables_and_cwd(&command, runtime.env, runtime.cwd, BTreeMap::new());
     }
 }

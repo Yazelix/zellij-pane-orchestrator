@@ -21,7 +21,6 @@ pub(crate) struct OrchestratorHeartbeat {
     last_pipe_name: Option<String>,
     last_pipe_at_unix_seconds: Option<u64>,
     last_status_cache_write_at_unix_seconds: Option<u64>,
-    status_refresh_started_at_by_name: BTreeMap<String, u64>,
 }
 
 impl OrchestratorHeartbeat {
@@ -35,7 +34,6 @@ impl OrchestratorHeartbeat {
             last_pipe_name: self.last_pipe_name.clone(),
             last_pipe_at_unix_seconds: self.last_pipe_at_unix_seconds,
             last_status_cache_write_at_unix_seconds: self.last_status_cache_write_at_unix_seconds,
-            status_refresh_started_at_by_name: self.status_refresh_started_at_by_name.clone(),
         })
     }
 }
@@ -86,12 +84,6 @@ impl State {
     pub(crate) fn record_status_cache_write(&mut self) {
         self.orchestrator_heartbeat
             .last_status_cache_write_at_unix_seconds = Some(unix_time_seconds());
-    }
-
-    pub(crate) fn record_status_refresh_start(&mut self, name: &str) {
-        self.orchestrator_heartbeat
-            .status_refresh_started_at_by_name
-            .insert(name.to_string(), unix_time_seconds());
     }
 
     pub(crate) fn handle_orchestrator_heartbeat_timer(&mut self) {

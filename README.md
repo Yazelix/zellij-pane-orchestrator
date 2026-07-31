@@ -93,7 +93,8 @@ fact when their pane command matches the optional
 disappears or the pane exits. The plugin reduces all facts by stable tab id and
 broadcasts the complete snapshot through `pipe_tab_activity`; compatible status
 bars consume it and unrelated plugins ignore it. It never writes activity into
-native Zellij tab names.
+native Zellij tab names. Agent-usage collection and caching belong to the
+consuming status bar, not this pane plugin.
 
 Editor command-mode integration is Neovim-only. Helix buffer opens and cwd sync are owned by the Yazelix Helix action bridge; direct Helix `open_file`, `set_managed_editor_cwd`, or `retarget_workspace` editor requests are rejected instead of sending `:open` or `:cd` text into the terminal.
 

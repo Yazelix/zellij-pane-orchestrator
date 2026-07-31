@@ -1,8 +1,6 @@
-use std::collections::BTreeMap;
-
 use serde_json::{json, Value};
 
-pub const ORCHESTRATOR_HEARTBEAT_SCHEMA_VERSION: i32 = 1;
+pub const ORCHESTRATOR_HEARTBEAT_SCHEMA_VERSION: i32 = 2;
 pub const ORCHESTRATOR_HEARTBEAT_STALE_AFTER_SECONDS: u64 = 90;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -15,20 +13,9 @@ pub struct OrchestratorHeartbeatPayload {
     pub last_pipe_name: Option<String>,
     pub last_pipe_at_unix_seconds: Option<u64>,
     pub last_status_cache_write_at_unix_seconds: Option<u64>,
-    pub status_refresh_started_at_by_name: BTreeMap<String, u64>,
 }
 
 pub fn build_orchestrator_heartbeat_payload(input: OrchestratorHeartbeatPayload) -> Value {
-    let mut status_refreshes = serde_json::Map::new();
-    for (name, started_at) in input.status_refresh_started_at_by_name {
-        status_refreshes.insert(
-            name,
-            json!({
-                "started_at_unix_seconds": started_at,
-            }),
-        );
-    }
-
     json!({
         "schema_version": ORCHESTRATOR_HEARTBEAT_SCHEMA_VERSION,
         "heartbeat_at_unix_seconds": input.heartbeat_at_unix_seconds,
@@ -48,7 +35,6 @@ pub fn build_orchestrator_heartbeat_payload(input: OrchestratorHeartbeatPayload)
             })
         }),
         "last_status_cache_write_at_unix_seconds": input.last_status_cache_write_at_unix_seconds,
-        "status_refreshes": status_refreshes,
     })
 }
 
@@ -74,15 +60,12 @@ mod tests {
             last_pipe_name: Some("focus_sidebar".to_string()),
             last_pipe_at_unix_seconds: Some(19),
             last_status_cache_write_at_unix_seconds: Some(18),
-            status_refresh_started_at_by_name: [("codex_usage".to_string(), 17)]
-                .into_iter()
-                .collect(),
         });
 
         assert_eq!(
             payload,
             json!({
-                "schema_version": 1,
+                "schema_version": 2,
                 "heartbeat_at_unix_seconds": 30,
                 "stale_after_seconds": ORCHESTRATOR_HEARTBEAT_STALE_AFTER_SECONDS,
                 "started_at_unix_seconds": 10,
@@ -95,12 +78,7 @@ mod tests {
                     "name": "focus_sidebar",
                     "at_unix_seconds": 19
                 },
-                "last_status_cache_write_at_unix_seconds": 18,
-                "status_refreshes": {
-                    "codex_usage": {
-                        "started_at_unix_seconds": 17
-                    }
-                }
+                "last_status_cache_write_at_unix_seconds": 18
             })
         );
         assert!(!payload.to_string().contains("#["));
