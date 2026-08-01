@@ -613,11 +613,6 @@ impl State {
             .get(&active_tab_id)
             .cloned()
             .unwrap_or_default();
-        let floating_panes_visible = self
-            .tab_floating_panes_visible_by_tab
-            .get(&active_tab_id)
-            .copied()
-            .unwrap_or(false);
         let visible_popup_is_open = terminal_panes.iter().any(|pane| {
             is_visible_popup_pane(
                 &pane.title,
@@ -625,7 +620,7 @@ impl State {
                 self.managed_agent_command_marker.as_deref(),
                 pane.is_floating,
                 pane.is_suppressed,
-                floating_panes_visible,
+                self.active_tab_floating_panes_visible,
             )
         });
         let managed_sidebar_pane_id = managed_tab_panes.sidebar.map(|managed| managed.pane_id);

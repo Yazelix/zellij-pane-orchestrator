@@ -58,7 +58,7 @@ struct State {
     tab_name_by_tab_id: HashMap<usize, String>,
     tab_fullscreen_active_by_tab: HashMap<usize, bool>,
     tab_sync_panes_active_by_tab: HashMap<usize, bool>,
-    tab_floating_panes_visible_by_tab: HashMap<usize, bool>,
+    active_tab_floating_panes_visible: bool,
     workspace_state_by_tab: HashMap<usize, WorkspaceState>,
     sidebar_yazi_state_by_tab: HashMap<usize, sidebar_yazi::SidebarYaziState>,
     ai_pane_activity_by_tab: HashMap<usize, Vec<SessionAiPaneActivity>>,
@@ -158,10 +158,9 @@ impl ZellijPlugin for State {
                     .iter()
                     .map(|tab| (tab.tab_id, tab.is_sync_panes_active))
                     .collect();
-                self.tab_floating_panes_visible_by_tab = tabs
+                self.active_tab_floating_panes_visible = tabs
                     .iter()
-                    .map(|tab| (tab.tab_id, tab.are_floating_panes_visible))
-                    .collect();
+                    .any(|tab| tab.active && tab.are_floating_panes_visible);
                 self.reconcile_workspace_state(&tabs);
                 self.reconcile_ai_pane_activity_tabs(&tabs);
                 {
