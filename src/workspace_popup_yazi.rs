@@ -2,8 +2,7 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use yazelix_zellij_pane_orchestrator::workspace_popup_contract::{
-    workspace_popup_destination_id, workspace_popup_payload, workspace_popup_yazi_response,
-    workspace_popup_yazi_tab_id,
+    workspace_popup_payload, workspace_popup_yazi_response, workspace_popup_yazi_tab_id,
 };
 use zellij_tile::prelude::*;
 
@@ -73,7 +72,7 @@ impl State {
             return;
         };
         let Some((destination_plugin_id, payload)) =
-            self.workspace_popup_request(active_tab_id, YAZI_POPUP_ID)
+            self.workspace_popup_yazi_request(active_tab_id)
         else {
             self.respond(pipe_message, RESULT_MISSING);
             return;
@@ -157,24 +156,13 @@ impl State {
         }
     }
 
-    fn workspace_popup_request(&self, tab_id: usize, popup_id: &str) -> Option<(u32, String)> {
+    fn workspace_popup_yazi_request(&self, tab_id: usize) -> Option<(u32, String)> {
         let workspace = self
             .workspace_state_by_tab
             .get(&tab_id)
             .or(self.initial_workspace_state.as_ref())?;
-        let payload = workspace_popup_payload(popup_id, &workspace.root)?;
-        let plugin_url = self.popup_plugin_url.as_deref()?;
-        let destination = self.last_pane_manifest.as_ref().and_then(|manifest| {
-            workspace_popup_destination_id(
-                plugin_url,
-                manifest
-                    .panes
-                    .values()
-                    .flatten()
-                    .map(|pane| (pane.id, pane.exited, pane.plugin_url.as_deref())),
-            )
-        })?;
-        Some((destination, payload))
+        let payload = workspace_popup_payload(YAZI_POPUP_ID, &workspace.root)?;
+        Some((self.popup_plugin_destination_id()?, payload))
     }
 
     fn workspace_popup_yazi_tab_id(&self, pane_id: &str) -> Option<usize> {

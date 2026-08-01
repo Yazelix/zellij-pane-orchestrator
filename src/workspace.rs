@@ -290,20 +290,7 @@ impl State {
             self.respond(pipe_message, RESULT_INVALID_PAYLOAD);
             return;
         };
-        let Some(plugin_url) = self.popup_plugin_url.as_deref() else {
-            self.respond(pipe_message, RESULT_MISSING);
-            return;
-        };
-        let Some(destination_plugin_id) = self.last_pane_manifest.as_ref().and_then(|manifest| {
-            workspace_popup_destination_id(
-                plugin_url,
-                manifest
-                    .panes
-                    .values()
-                    .flatten()
-                    .map(|pane| (pane.id, pane.exited, pane.plugin_url.as_deref())),
-            )
-        }) else {
+        let Some(destination_plugin_id) = self.popup_plugin_destination_id() else {
             self.respond(pipe_message, RESULT_MISSING);
             return;
         };
@@ -314,6 +301,20 @@ impl State {
                 .with_payload(payload),
         );
         self.respond(pipe_message, RESULT_OK);
+    }
+
+    pub(crate) fn popup_plugin_destination_id(&self) -> Option<u32> {
+        let plugin_url = self.popup_plugin_url.as_deref()?;
+        self.last_pane_manifest.as_ref().and_then(|manifest| {
+            workspace_popup_destination_id(
+                plugin_url,
+                manifest
+                    .panes
+                    .values()
+                    .flatten()
+                    .map(|pane| (pane.id, pane.exited, pane.plugin_url.as_deref())),
+            )
+        })
     }
 }
 
