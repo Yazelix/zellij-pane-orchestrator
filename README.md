@@ -80,8 +80,7 @@ popup id as its payload, and forwards that id with the active tab's canonical
 workspace root to the loaded popup instance matching that URL.
 `focus_workspace_popup_yazi` additionally requires
 `workspace_popup_yazi_pane_title`. It ensures the configured `yazi` popup is
-shown, then returns its registered Yazi id. The first launch waits at most five
-seconds for Yazi registration; hidden or visible live popups return immediately.
+shown, then returns its registered Yazi id or `not_ready` while Yazi starts.
 
 `register_ai_pane_activity` records tab-local AI activity facts. Live
 spinner-prefixed terminal titles such as Codex's activity title provide the same

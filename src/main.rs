@@ -65,8 +65,6 @@ struct State {
         HashMap<usize, workspace_popup_yazi::WorkspacePopupYaziState>,
     unresolved_workspace_popup_yazi_state_by_pane:
         HashMap<String, workspace_popup_yazi::WorkspacePopupYaziState>,
-    pending_workspace_popup_yazi_by_tab:
-        HashMap<usize, workspace_popup_yazi::PendingWorkspacePopupYazi>,
     ai_pane_activity_by_tab: HashMap<usize, Vec<SessionAiPaneActivity>>,
     seen_tab_ids: HashSet<usize>,
     initial_workspace_state: Option<WorkspaceState>,
@@ -207,7 +205,6 @@ impl ZellijPlugin for State {
                 self.handle_tab_local_pane_reconcile_timer();
                 self.handle_screen_saver_timer();
                 self.handle_orchestrator_heartbeat_timer();
-                self.handle_workspace_popup_yazi_timer();
             }
             Event::PaneClosed(pane_id) => {
                 self.handle_terminal_title_activity_pane_closed(pane_id);
@@ -482,7 +479,6 @@ impl State {
                 self.screen_saver_next_timeout,
                 self.tab_local_pane_reconcile_next_flush,
                 self.orchestrator_heartbeat.next_flush,
-                self.workspace_popup_yazi_next_timeout(),
             ],
             self.timer_armed_for,
         ) else {

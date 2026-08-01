@@ -1,5 +1,3 @@
-use std::time::{Duration, Instant};
-
 use serde::Deserialize;
 use yazelix_zellij_pane_orchestrator::workspace_popup_contract::{
     workspace_popup_payload, workspace_popup_yazi_response, workspace_popup_yazi_tab_id,
@@ -12,8 +10,6 @@ use crate::{
 };
 
 const YAZI_POPUP_ID: &str = "yazi";
-const POPUP_YAZI_READY_TIMEOUT: Duration = Duration::from_secs(5);
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkspacePopupYaziState {
     pane_id: String,
@@ -24,11 +20,6 @@ pub(crate) struct WorkspacePopupYaziState {
 struct WorkspacePopupYaziRegistration {
     pane_id: String,
     yazi_id: String,
-}
-
-pub(crate) struct PendingWorkspacePopupYazi {
-    pipe_message: PipeMessage,
-    deadline: Instant,
 }
 
 impl State {
@@ -57,7 +48,6 @@ impl State {
         let state = WorkspacePopupYaziState { pane_id, yazi_id };
         if let Some(tab_id) = self.workspace_popup_yazi_tab_id(&state.pane_id) {
             self.workspace_popup_yazi_state_by_tab.insert(tab_id, state);
-            self.complete_pending_workspace_popup_yazi(tab_id);
         } else {
             self.unresolved_workspace_popup_yazi_state_by_pane
                 .insert(state.pane_id.clone(), state);
@@ -79,25 +69,6 @@ impl State {
         let registered = self
             .get_workspace_popup_yazi(active_tab_id)
             .map(|state| state.yazi_id.clone());
-        let from_cli = matches!(pipe_message.source, PipeSource::Cli(_));
-        if registered.is_none()
-            && from_cli
-            && self
-                .pending_workspace_popup_yazi_by_tab
-                .contains_key(&active_tab_id)
-        {
-            self.respond(pipe_message, RESULT_NOT_READY);
-            return;
-        }
-        if registered.is_none() && from_cli {
-            self.pending_workspace_popup_yazi_by_tab.insert(
-                active_tab_id,
-                PendingWorkspacePopupYazi {
-                    pipe_message: pipe_message.clone(),
-                    deadline: Instant::now() + POPUP_YAZI_READY_TIMEOUT,
-                },
-            );
-        }
 
         pipe_message_to_plugin(
             MessageToPlugin::new("ensure")
@@ -107,32 +78,11 @@ impl State {
 
         if let Some(yazi_id) = registered {
             self.respond_workspace_popup_yazi(pipe_message, &yazi_id);
-        } else if !from_cli {
+        } else if matches!(pipe_message.source, PipeSource::Cli(_)) {
+            self.respond(pipe_message, RESULT_NOT_READY);
+        } else {
             self.respond(pipe_message, RESULT_OK);
         }
-        self.arm_next_timer();
-    }
-
-    pub(crate) fn handle_workspace_popup_yazi_timer(&mut self) {
-        let now = Instant::now();
-        let expired = self
-            .pending_workspace_popup_yazi_by_tab
-            .iter()
-            .filter(|(_, pending)| pending.deadline <= now)
-            .map(|(tab_id, _)| *tab_id)
-            .collect::<Vec<_>>();
-        for tab_id in expired {
-            if let Some(pending) = self.pending_workspace_popup_yazi_by_tab.remove(&tab_id) {
-                self.respond(&pending.pipe_message, RESULT_NOT_READY);
-            }
-        }
-    }
-
-    pub(crate) fn workspace_popup_yazi_next_timeout(&self) -> Option<Instant> {
-        self.pending_workspace_popup_yazi_by_tab
-            .values()
-            .map(|pending| pending.deadline)
-            .min()
     }
 
     pub(crate) fn resolve_workspace_popup_yazi_registrations(&mut self) {
@@ -150,7 +100,6 @@ impl State {
                 .remove(&pane_id)
             {
                 self.workspace_popup_yazi_state_by_tab.insert(tab_id, state);
-                self.complete_pending_workspace_popup_yazi(tab_id);
             }
         }
     }
@@ -184,18 +133,6 @@ impl State {
     fn get_workspace_popup_yazi(&self, tab_id: usize) -> Option<&WorkspacePopupYaziState> {
         let state = self.workspace_popup_yazi_state_by_tab.get(&tab_id)?;
         (self.workspace_popup_yazi_tab_id(&state.pane_id) == Some(tab_id)).then_some(state)
-    }
-
-    fn complete_pending_workspace_popup_yazi(&mut self, tab_id: usize) {
-        let Some(yazi_id) = self
-            .get_workspace_popup_yazi(tab_id)
-            .map(|state| state.yazi_id.clone())
-        else {
-            return;
-        };
-        if let Some(pending) = self.pending_workspace_popup_yazi_by_tab.remove(&tab_id) {
-            self.respond_workspace_popup_yazi(&pending.pipe_message, &yazi_id);
-        }
     }
 
     fn respond_workspace_popup_yazi(&self, pipe_message: &PipeMessage, yazi_id: &str) {
