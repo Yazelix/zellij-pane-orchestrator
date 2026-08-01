@@ -76,9 +76,9 @@ previous provenance when rolling back a failed multi-step retarget.
 `toggle_workspace_popup` requires a configured `popup_plugin_url`, accepts a
 popup id as its payload, and forwards that id with the active tab's canonical
 workspace root to the loaded popup instance matching that URL.
-`smart_reveal` forwards `Alt-r` to the managed editor, hides a focused visible
+`smart_reveal` forwards `Alt-r` to the managed editor, closes a focused visible
 `yazi_popup` through that same popup owner, and otherwise retains the existing
-editor/sidebar focus toggle. Hiding the popup does not open its selected item or
+editor/sidebar focus toggle. Closing the popup does not open its selected item or
 change the canonical workspace.
 
 `register_ai_pane_activity` records tab-local AI activity facts. Live

@@ -17,7 +17,7 @@ pub enum FocusContextPolicy {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SmartRevealAction {
     ForwardToEditor,
-    HideYaziPopup,
+    CloseYaziPopup,
     ToggleEditorSidebarFocus,
 }
 
@@ -73,7 +73,7 @@ pub fn resolve_smart_reveal_action(
         && !focused_pane_is_suppressed
         && focused_pane_title.is_some_and(|title| title.trim() == "yazi_popup")
     {
-        SmartRevealAction::HideYaziPopup
+        SmartRevealAction::CloseYaziPopup
     } else {
         SmartRevealAction::ToggleEditorSidebarFocus
     }
@@ -168,7 +168,7 @@ mod tests {
                 false,
                 true,
             ),
-            SmartRevealAction::HideYaziPopup
+            SmartRevealAction::CloseYaziPopup
         );
         for (title, is_suppressed, floating_panes_visible) in [
             ("git_popup", false, true),

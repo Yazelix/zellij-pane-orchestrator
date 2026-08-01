@@ -508,8 +508,8 @@ impl State {
                 write_to_pane_id(vec![27, b'r'], editor_pane.pane_id);
                 self.respond(pipe_message, RESULT_OK);
             }
-            SmartRevealAction::HideYaziPopup => {
-                self.toggle_workspace_popup_by_id(pipe_message, "yazi");
+            SmartRevealAction::CloseYaziPopup => {
+                self.close_workspace_popup_by_id(pipe_message, "yazi");
             }
             SmartRevealAction::ToggleEditorSidebarFocus => {
                 self.toggle_editor_sidebar_focus(pipe_message);
