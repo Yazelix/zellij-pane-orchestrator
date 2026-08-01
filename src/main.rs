@@ -242,10 +242,6 @@ impl ZellijPlugin for State {
                 self.move_horizontal_focus_or_tab(&pipe_message, HorizontalDirection::Right);
                 false
             }
-            "smart_reveal" => {
-                self.smart_reveal(&pipe_message);
-                false
-            }
             "open_file" => {
                 self.open_file_in_managed_editor(&pipe_message);
                 false

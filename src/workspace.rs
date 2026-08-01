@@ -274,19 +274,6 @@ impl State {
             self.respond(pipe_message, RESULT_INVALID_PAYLOAD);
             return;
         };
-        self.send_workspace_popup_action(pipe_message, popup_id, "toggle");
-    }
-
-    pub(crate) fn close_workspace_popup_by_id(&self, pipe_message: &PipeMessage, popup_id: &str) {
-        self.send_workspace_popup_action(pipe_message, popup_id, "close");
-    }
-
-    fn send_workspace_popup_action(
-        &self,
-        pipe_message: &PipeMessage,
-        popup_id: &str,
-        action: &str,
-    ) {
         let Some(active_tab_id) = self.ensure_action_ready(pipe_message) else {
             return;
         };
@@ -321,7 +308,7 @@ impl State {
         };
 
         pipe_message_to_plugin(
-            MessageToPlugin::new(action)
+            MessageToPlugin::new("toggle")
                 .with_destination_plugin_id(destination_plugin_id)
                 .with_payload(payload),
         );

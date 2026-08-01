@@ -61,7 +61,6 @@ These commands are intended to work without Yazelix runtime paths:
 
 Yazelix integration commands depend on Yazelix-managed editor/sidebar/workspace conventions:
 
-- `smart_reveal`
 - `open_file`
 - `set_managed_editor_cwd`
 - `register_sidebar_yazi_state`
@@ -76,11 +75,6 @@ previous provenance when rolling back a failed multi-step retarget.
 `toggle_workspace_popup` requires a configured `popup_plugin_url`, accepts a
 popup id as its payload, and forwards that id with the active tab's canonical
 workspace root to the loaded popup instance matching that URL.
-`smart_reveal` forwards `Alt-r` to the managed editor, closes a focused visible
-`yazi_popup` through that same popup owner, and otherwise retains the existing
-editor/sidebar focus toggle. Closing the popup does not open its selected item or
-change the canonical workspace.
-
 `register_ai_pane_activity` records tab-local AI activity facts. Live
 spinner-prefixed terminal titles such as Codex's activity title provide the same
 fact when their pane command matches the optional

@@ -14,13 +14,6 @@ pub enum FocusContextPolicy {
     Other,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SmartRevealAction {
-    ForwardToEditor,
-    CloseYaziPopup,
-    ToggleEditorSidebarFocus,
-}
-
 pub fn select_managed_pane_index(
     panes: &[PaneSnapshot<'_>],
     expected_title: &str,
@@ -59,32 +52,11 @@ pub fn resolve_focus_context(
     }
 }
 
-pub fn resolve_smart_reveal_action(
-    focus_context: FocusContextPolicy,
-    focused_pane_title: Option<&str>,
-    focused_pane_is_floating: bool,
-    focused_pane_is_suppressed: bool,
-    floating_panes_visible: bool,
-) -> SmartRevealAction {
-    if focus_context == FocusContextPolicy::Editor {
-        SmartRevealAction::ForwardToEditor
-    } else if floating_panes_visible
-        && focused_pane_is_floating
-        && !focused_pane_is_suppressed
-        && focused_pane_title.is_some_and(|title| title.trim() == "yazi_popup")
-    {
-        SmartRevealAction::CloseYaziPopup
-    } else {
-        SmartRevealAction::ToggleEditorSidebarFocus
-    }
-}
-
 // Test lane: maintainer
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_focus_context, resolve_smart_reveal_action, select_managed_pane_index,
-        FocusContextPolicy, PaneSnapshot, SmartRevealAction,
+        resolve_focus_context, select_managed_pane_index, FocusContextPolicy, PaneSnapshot,
     };
 
     // Defends: managed-pane lookup keys off the canonical pane titles instead of editor binary names.
@@ -145,47 +117,5 @@ mod tests {
             resolve_focus_context(Some("something_else"), FocusContextPolicy::Sidebar),
             FocusContextPolicy::Other
         );
-    }
-
-    // Defends: Alt-r hides only the visible focused Yazi popup while retaining the existing editor and sidebar routes.
-    #[test]
-    fn smart_reveal_routes_editor_yazi_popup_and_other_focus() {
-        assert_eq!(
-            resolve_smart_reveal_action(
-                FocusContextPolicy::Editor,
-                Some("editor"),
-                false,
-                false,
-                false,
-            ),
-            SmartRevealAction::ForwardToEditor
-        );
-        assert_eq!(
-            resolve_smart_reveal_action(
-                FocusContextPolicy::Other,
-                Some(" yazi_popup "),
-                true,
-                false,
-                true,
-            ),
-            SmartRevealAction::CloseYaziPopup
-        );
-        for (title, is_suppressed, floating_panes_visible) in [
-            ("git_popup", false, true),
-            ("yazi_popup", true, true),
-            ("yazi_popup", false, false),
-            ("sidebar", false, false),
-        ] {
-            assert_eq!(
-                resolve_smart_reveal_action(
-                    FocusContextPolicy::Other,
-                    Some(title),
-                    true,
-                    is_suppressed,
-                    floating_panes_visible,
-                ),
-                SmartRevealAction::ToggleEditorSidebarFocus
-            );
-        }
     }
 }
