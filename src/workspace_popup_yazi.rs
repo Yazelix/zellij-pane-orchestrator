@@ -57,15 +57,15 @@ impl State {
             self.respond(pipe_message, RESULT_INVALID_PAYLOAD);
             return;
         }
-        let Some(tab_id) = self.workspace_popup_yazi_tab_id(&pane_id) else {
-            self.respond(pipe_message, RESULT_MISSING);
-            return;
-        };
-
-        self.workspace_popup_yazi_state_by_tab
-            .insert(tab_id, WorkspacePopupYaziState { pane_id, yazi_id });
+        let state = WorkspacePopupYaziState { pane_id, yazi_id };
+        if let Some(tab_id) = self.workspace_popup_yazi_tab_id(&state.pane_id) {
+            self.workspace_popup_yazi_state_by_tab.insert(tab_id, state);
+            self.complete_pending_workspace_popup_yazi(tab_id);
+        } else {
+            self.unresolved_workspace_popup_yazi_state_by_pane
+                .insert(state.pane_id.clone(), state);
+        }
         self.respond(pipe_message, RESULT_OK);
-        self.complete_pending_workspace_popup_yazi(tab_id);
     }
 
     pub(crate) fn focus_workspace_popup_yazi(&mut self, pipe_message: &PipeMessage) {
@@ -135,6 +135,26 @@ impl State {
             .values()
             .map(|pending| pending.deadline)
             .min()
+    }
+
+    pub(crate) fn resolve_workspace_popup_yazi_registrations(&mut self) {
+        let pane_ids = self
+            .unresolved_workspace_popup_yazi_state_by_pane
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        for pane_id in pane_ids {
+            let Some(tab_id) = self.workspace_popup_yazi_tab_id(&pane_id) else {
+                continue;
+            };
+            if let Some(state) = self
+                .unresolved_workspace_popup_yazi_state_by_pane
+                .remove(&pane_id)
+            {
+                self.workspace_popup_yazi_state_by_tab.insert(tab_id, state);
+                self.complete_pending_workspace_popup_yazi(tab_id);
+            }
+        }
     }
 
     fn workspace_popup_request(&self, tab_id: usize, popup_id: &str) -> Option<(u32, String)> {

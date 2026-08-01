@@ -63,6 +63,8 @@ struct State {
     sidebar_yazi_state_by_tab: HashMap<usize, sidebar_yazi::SidebarYaziState>,
     workspace_popup_yazi_state_by_tab:
         HashMap<usize, workspace_popup_yazi::WorkspacePopupYaziState>,
+    unresolved_workspace_popup_yazi_state_by_pane:
+        HashMap<String, workspace_popup_yazi::WorkspacePopupYaziState>,
     pending_workspace_popup_yazi_by_tab:
         HashMap<usize, workspace_popup_yazi::PendingWorkspacePopupYazi>,
     ai_pane_activity_by_tab: HashMap<usize, Vec<SessionAiPaneActivity>>,
@@ -380,6 +382,7 @@ impl State {
         self.workspace_status_pipe_payload_by_plugin
             .retain(|plugin_id, _| self.tab_pane_caches.has_zjstatus_plugin_id(*plugin_id));
         self.reconcile_sidebar_yazi_state();
+        self.resolve_workspace_popup_yazi_registrations();
         self.reconcile_ai_pane_activity_panes();
     }
 
