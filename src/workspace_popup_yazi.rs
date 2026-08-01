@@ -24,7 +24,6 @@ pub(crate) struct WorkspacePopupYaziState {
 struct WorkspacePopupYaziRegistration {
     pane_id: String,
     yazi_id: String,
-    cwd: String,
 }
 
 pub(crate) struct PendingWorkspacePopupYazi {
@@ -51,8 +50,7 @@ impl State {
         };
         let pane_id = registration.pane_id.trim().to_string();
         let yazi_id = registration.yazi_id.trim().to_string();
-        let cwd = registration.cwd.trim().to_string();
-        if pane_id.is_empty() || yazi_id.is_empty() || cwd.is_empty() {
+        if pane_id.is_empty() || yazi_id.is_empty() {
             self.respond(pipe_message, RESULT_INVALID_PAYLOAD);
             return;
         }
@@ -81,8 +79,9 @@ impl State {
         let registered = self
             .get_workspace_popup_yazi(active_tab_id)
             .map(|state| state.yazi_id.clone());
+        let from_cli = matches!(pipe_message.source, PipeSource::Cli(_));
         if registered.is_none()
-            && matches!(pipe_message.source, PipeSource::Cli(_))
+            && from_cli
             && self
                 .pending_workspace_popup_yazi_by_tab
                 .contains_key(&active_tab_id)
@@ -90,7 +89,7 @@ impl State {
             self.respond(pipe_message, RESULT_NOT_READY);
             return;
         }
-        if registered.is_none() && matches!(pipe_message.source, PipeSource::Cli(_)) {
+        if registered.is_none() && from_cli {
             self.pending_workspace_popup_yazi_by_tab.insert(
                 active_tab_id,
                 PendingWorkspacePopupYazi {
@@ -108,7 +107,7 @@ impl State {
 
         if let Some(yazi_id) = registered {
             self.respond_workspace_popup_yazi(pipe_message, &yazi_id);
-        } else if !matches!(pipe_message.source, PipeSource::Cli(_)) {
+        } else if !from_cli {
             self.respond(pipe_message, RESULT_OK);
         }
         self.arm_next_timer();
