@@ -39,8 +39,10 @@ pub fn is_visible_popup_pane(
     managed_agent_command_marker: Option<&str>,
     is_floating: bool,
     is_suppressed: bool,
+    floating_panes_visible: bool,
 ) -> bool {
-    is_floating
+    floating_panes_visible
+        && is_floating
         && !is_suppressed
         && (pane_title.trim().ends_with("_popup")
             || terminal_command_matches_marker(terminal_command, managed_agent_command_marker))
@@ -268,7 +270,8 @@ mod tests {
     #[test]
     fn visible_popup_identity_accepts_title_or_managed_agent_command() {
         let marker = Some("/nix/store/agent/bin/yzx-agent");
-        let visible = |title, command| is_visible_popup_pane(title, command, marker, true, false);
+        let visible =
+            |title, command| is_visible_popup_pane(title, command, marker, true, false, true);
 
         assert!(visible("config_popup", None));
         assert!(visible("Codex", marker));
@@ -278,12 +281,22 @@ mod tests {
             None,
             None,
             true,
+            true,
             true
         ));
         assert!(!is_visible_popup_pane(
             "agent_popup",
             None,
             None,
+            false,
+            false,
+            true
+        ));
+        assert!(!is_visible_popup_pane(
+            "agent_popup",
+            None,
+            None,
+            true,
             false,
             false
         ));

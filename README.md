@@ -65,11 +65,9 @@ Yazelix integration commands depend on Yazelix-managed editor/sidebar/workspace 
 - `open_file`
 - `set_managed_editor_cwd`
 - `register_sidebar_yazi_state`
-- `register_workspace_popup_yazi_state`
 - `register_ai_pane_activity`
 - `retarget_workspace`
 - `toggle_workspace_popup`
-- `focus_workspace_popup_yazi`
 - `reload_runtime_config`
 
 `retarget_workspace` accepts an optional `workspace_source` of `explicit` or
@@ -78,9 +76,6 @@ previous provenance when rolling back a failed multi-step retarget.
 `toggle_workspace_popup` requires a configured `popup_plugin_url`, accepts a
 popup id as its payload, and forwards that id with the active tab's canonical
 workspace root to the loaded popup instance matching that URL.
-`focus_workspace_popup_yazi` additionally requires
-`workspace_popup_yazi_pane_title`. It ensures the configured `yazi` popup is
-shown, then returns its registered Yazi id or `not_ready` while Yazi starts.
 
 `register_ai_pane_activity` records tab-local AI activity facts. Live
 spinner-prefixed terminal titles such as Codex's activity title provide the same
