@@ -270,6 +270,14 @@ impl State {
     }
 
     pub(crate) fn toggle_workspace_popup(&self, pipe_message: &PipeMessage) {
+        let Some(popup_id) = pipe_message.payload.as_deref() else {
+            self.respond(pipe_message, RESULT_INVALID_PAYLOAD);
+            return;
+        };
+        self.toggle_workspace_popup_by_id(pipe_message, popup_id);
+    }
+
+    pub(crate) fn toggle_workspace_popup_by_id(&self, pipe_message: &PipeMessage, popup_id: &str) {
         let Some(active_tab_id) = self.ensure_action_ready(pipe_message) else {
             return;
         };
@@ -281,11 +289,7 @@ impl State {
             self.respond(pipe_message, RESULT_MISSING);
             return;
         };
-        let Some(payload) = pipe_message
-            .payload
-            .as_deref()
-            .and_then(|popup_id| workspace_popup_payload(popup_id, &workspace_state.root))
-        else {
+        let Some(payload) = workspace_popup_payload(popup_id, &workspace_state.root) else {
             self.respond(pipe_message, RESULT_INVALID_PAYLOAD);
             return;
         };

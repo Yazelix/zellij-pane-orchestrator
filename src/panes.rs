@@ -11,7 +11,8 @@ use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::{
     HorizontalFocusPlan, HorizontalPaneSnapshot,
 };
 use yazelix_zellij_pane_orchestrator::pane_contract::{
-    resolve_focus_context, select_managed_pane_index, FocusContextPolicy, PaneSnapshot,
+    resolve_focus_context, resolve_smart_reveal_action, select_managed_pane_index,
+    FocusContextPolicy, PaneSnapshot, SmartRevealAction,
 };
 use yazelix_zellij_pane_orchestrator::sidebar_contract::{
     resolve_sidebar_focus_toggle, SidebarFocusTogglePlan,
@@ -485,19 +486,35 @@ impl State {
             .get(&active_tab_id)
             .copied()
             .unwrap_or(FocusContext::Other);
+        let focused_pane = self
+            .tab_pane_caches
+            .terminal_panes_by_tab
+            .get(&active_tab_id)
+            .and_then(|panes| panes.iter().find(|pane| pane.is_focused));
 
-        if focus_context == FocusContext::Editor {
-            let Some(editor_pane) = self.get_managed_pane(pipe_message, ManagedPaneKind::Editor)
-            else {
-                return;
-            };
-
-            write_to_pane_id(vec![27, b'r'], editor_pane.pane_id);
-            self.respond(pipe_message, RESULT_OK);
-            return;
+        match resolve_smart_reveal_action(
+            focus_context,
+            focused_pane.map(|pane| pane.title.as_str()),
+            focused_pane.is_some_and(|pane| pane.is_floating),
+            focused_pane.is_some_and(|pane| pane.is_suppressed),
+            self.active_tab_floating_panes_visible,
+        ) {
+            SmartRevealAction::ForwardToEditor => {
+                let Some(editor_pane) =
+                    self.get_managed_pane(pipe_message, ManagedPaneKind::Editor)
+                else {
+                    return;
+                };
+                write_to_pane_id(vec![27, b'r'], editor_pane.pane_id);
+                self.respond(pipe_message, RESULT_OK);
+            }
+            SmartRevealAction::HideYaziPopup => {
+                self.toggle_workspace_popup_by_id(pipe_message, "yazi");
+            }
+            SmartRevealAction::ToggleEditorSidebarFocus => {
+                self.toggle_editor_sidebar_focus(pipe_message);
+            }
         }
-
-        self.toggle_editor_sidebar_focus(pipe_message);
     }
 
     pub(crate) fn focus_managed_pane(
