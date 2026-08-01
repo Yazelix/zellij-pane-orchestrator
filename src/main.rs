@@ -380,7 +380,6 @@ impl State {
         self.workspace_status_pipe_payload_by_plugin
             .retain(|plugin_id, _| self.tab_pane_caches.has_zjstatus_plugin_id(*plugin_id));
         self.reconcile_sidebar_yazi_state();
-        self.reconcile_workspace_popup_yazi_state();
         self.reconcile_ai_pane_activity_panes();
     }
 
@@ -441,7 +440,10 @@ impl State {
             .retain(|tab_id, _| current_tab_ids.contains(tab_id));
         self.tab_pane_caches.retain_current_tabs(&current_tab_ids);
         retain_current_tab_state(&mut self.sidebar_yazi_state_by_tab, &current_tab_ids);
-        self.retain_workspace_popup_yazi_tabs(&current_tab_ids);
+        retain_current_tab_state(
+            &mut self.workspace_popup_yazi_state_by_tab,
+            &current_tab_ids,
+        );
         retain_current_tab_state(&mut self.tab_name_by_tab_id, &current_tab_ids);
         retain_current_tab_state(&mut self.tab_fullscreen_active_by_tab, &current_tab_ids);
         retain_current_tab_state(&mut self.tab_sync_panes_active_by_tab, &current_tab_ids);

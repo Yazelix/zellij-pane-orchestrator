@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
@@ -20,7 +19,6 @@ const POPUP_YAZI_READY_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) struct WorkspacePopupYaziState {
     pane_id: String,
     yazi_id: String,
-    cwd: String,
 }
 
 #[derive(Deserialize)]
@@ -64,14 +62,8 @@ impl State {
             return;
         };
 
-        self.workspace_popup_yazi_state_by_tab.insert(
-            tab_id,
-            WorkspacePopupYaziState {
-                pane_id,
-                yazi_id,
-                cwd,
-            },
-        );
+        self.workspace_popup_yazi_state_by_tab
+            .insert(tab_id, WorkspacePopupYaziState { pane_id, yazi_id });
         self.respond(pipe_message, RESULT_OK);
         self.complete_pending_workspace_popup_yazi(tab_id);
     }
@@ -121,28 +113,6 @@ impl State {
             self.respond(pipe_message, RESULT_OK);
         }
         self.arm_next_timer();
-    }
-
-    pub(crate) fn reconcile_workspace_popup_yazi_state(&mut self) {
-        let valid_panes = self.workspace_popup_yazi_panes();
-        self.workspace_popup_yazi_state_by_tab
-            .retain(|tab_id, state| valid_panes.contains(&(*tab_id, state.pane_id.clone())));
-    }
-
-    pub(crate) fn retain_workspace_popup_yazi_tabs(&mut self, current_tab_ids: &HashSet<usize>) {
-        self.workspace_popup_yazi_state_by_tab
-            .retain(|tab_id, _| current_tab_ids.contains(tab_id));
-        let removed = self
-            .pending_workspace_popup_yazi_by_tab
-            .keys()
-            .filter(|tab_id| !current_tab_ids.contains(tab_id))
-            .copied()
-            .collect::<Vec<_>>();
-        for tab_id in removed {
-            if let Some(pending) = self.pending_workspace_popup_yazi_by_tab.remove(&tab_id) {
-                self.respond(&pending.pipe_message, RESULT_MISSING);
-            }
-        }
     }
 
     pub(crate) fn handle_workspace_popup_yazi_timer(&mut self) {
@@ -202,24 +172,6 @@ impl State {
                     })
                 }),
         )
-    }
-
-    fn workspace_popup_yazi_panes(&self) -> HashSet<(usize, String)> {
-        let Some(title) = self.workspace_popup_yazi_pane_title.as_deref() else {
-            return HashSet::new();
-        };
-        self.tab_pane_caches
-            .terminal_panes_by_tab
-            .iter()
-            .flat_map(|(tab_id, panes)| {
-                panes.iter().filter_map(move |pane| {
-                    (pane.is_floating && pane.title.trim() == title)
-                        .then(|| pane_id_to_string(Some(pane.pane_id)))
-                        .flatten()
-                        .map(|pane_id| (*tab_id, pane_id))
-                })
-            })
-            .collect()
     }
 
     fn get_workspace_popup_yazi(&self, tab_id: usize) -> Option<&WorkspacePopupYaziState> {
