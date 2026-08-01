@@ -91,8 +91,7 @@ impl State {
         let has_focus_fallback = self
             .tab_pane_caches
             .fallback_terminal_pane_by_tab
-            .get(&active_tab_id)
-            .is_some();
+            .contains_key(&active_tab_id);
 
         match resolve_agent_focus_toggle(
             agent_is_focused,

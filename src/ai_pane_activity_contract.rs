@@ -213,7 +213,7 @@ mod tests {
         );
 
         assert_eq!(
-            ai_activity_tab_state(&[active.clone()]),
+            ai_activity_tab_state(std::slice::from_ref(&active)),
             AiActivityTabState::Busy
         );
         assert_eq!(ai_activity_tab_state(&[thinking]), AiActivityTabState::Busy);

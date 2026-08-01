@@ -50,12 +50,7 @@ pub fn resolve_sidebar_visibility_toggle(
             action: SidebarVisibilityAction::Open,
             post_layout_focus: SidebarPostLayoutFocus::Preserve,
         }
-    } else if focus_context == FocusContextPolicy::Sidebar && has_editor {
-        SidebarVisibilityTogglePlan {
-            action: SidebarVisibilityAction::Close,
-            post_layout_focus: SidebarPostLayoutFocus::MoveRightToNonSidebar,
-        }
-    } else if focus_context == FocusContextPolicy::Sidebar && has_focus_fallback {
+    } else if focus_context == FocusContextPolicy::Sidebar && (has_editor || has_focus_fallback) {
         SidebarVisibilityTogglePlan {
             action: SidebarVisibilityAction::Close,
             post_layout_focus: SidebarPostLayoutFocus::MoveRightToNonSidebar,

@@ -86,8 +86,7 @@ impl State {
         let has_focus_fallback = self
             .tab_pane_caches
             .fallback_terminal_pane_by_tab
-            .get(&active_tab_id)
-            .is_some();
+            .contains_key(&active_tab_id);
 
         let plan = resolve_sidebar_visibility_toggle(
             sidebar_is_closed,
@@ -151,8 +150,7 @@ impl State {
         let has_focus_fallback = self
             .tab_pane_caches
             .fallback_terminal_pane_by_tab
-            .get(&active_tab_id)
-            .is_some();
+            .contains_key(&active_tab_id);
 
         if let Some(post_layout_focus) = resolve_sidebar_hide(
             sidebar_is_closed,

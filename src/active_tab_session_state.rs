@@ -64,9 +64,10 @@ pub struct SessionTransientPanes {
     pub menu: Option<SessionTransientPane>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionAiPaneActivityState {
+    #[default]
     Unknown,
     Inactive,
     Active,
@@ -94,12 +95,6 @@ impl SessionAiPaneActivityState {
             "stale" => Some(Self::Stale),
             _ => None,
         }
-    }
-}
-
-impl Default for SessionAiPaneActivityState {
-    fn default() -> Self {
-        Self::Unknown
     }
 }
 

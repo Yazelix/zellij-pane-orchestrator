@@ -732,9 +732,7 @@ impl State {
         pipe_message: &PipeMessage,
         pane_kind: ManagedPaneKind,
     ) -> Option<ManagedTerminalPane> {
-        let Some(active_tab_id) = self.ensure_action_ready(pipe_message) else {
-            return None;
-        };
+        let active_tab_id = self.ensure_action_ready(pipe_message)?;
 
         let managed_pane = self
             .tab_pane_caches
@@ -755,9 +753,7 @@ impl State {
     }
 
     pub(crate) fn get_focused_terminal_pane(&self, pipe_message: &PipeMessage) -> Option<PaneId> {
-        let Some(active_tab_id) = self.ensure_action_ready(pipe_message) else {
-            return None;
-        };
+        let active_tab_id = self.ensure_action_ready(pipe_message)?;
 
         match self
             .tab_pane_caches

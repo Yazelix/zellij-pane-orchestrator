@@ -426,13 +426,6 @@ impl State {
             .retain(|tab_id, _| current_tab_ids.contains(tab_id));
         self.tab_pane_caches.retain_current_tabs(&current_tab_ids);
         retain_current_tab_state(&mut self.sidebar_yazi_state_by_tab, &current_tab_ids);
-        retain_current_tab_state(&mut self.tab_name_by_tab_id, &current_tab_ids);
-        retain_current_tab_state(&mut self.tab_fullscreen_active_by_tab, &current_tab_ids);
-        retain_current_tab_state(&mut self.tab_sync_panes_active_by_tab, &current_tab_ids);
-        retain_current_tab_state(
-            &mut self.tab_floating_panes_visible_by_tab,
-            &current_tab_ids,
-        );
     }
 
     pub(crate) fn ensure_action_ready(&self, pipe_message: &PipeMessage) -> Option<usize> {

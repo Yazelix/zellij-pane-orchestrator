@@ -76,13 +76,12 @@ impl State {
         if let Some(active_tab_id) = active_tab_id {
             let is_new_tab = !self.seen_tab_ids.contains(&active_tab_id);
             if !self.workspace_state_by_tab.contains_key(&active_tab_id) {
-                let inherited_workspace_state = if is_new_tab {
-                    self.initial_workspace_state.clone()
-                } else if self.workspace_state_by_tab.is_empty() {
-                    self.initial_workspace_state.clone()
-                } else {
-                    None
-                };
+                let inherited_workspace_state =
+                    if is_new_tab || self.workspace_state_by_tab.is_empty() {
+                        self.initial_workspace_state.clone()
+                    } else {
+                        None
+                    };
 
                 if let Some(workspace_state) = inherited_workspace_state {
                     self.workspace_state_by_tab
@@ -131,7 +130,7 @@ impl State {
         };
         rename_tab(
             tab_index_from_position(active_tab_position),
-            &tab_name_from_workspace_root(&workspace_state.root),
+            tab_name_from_workspace_root(&workspace_state.root),
         );
         self.workspace_state_by_tab
             .insert(active_tab_id, workspace_state.clone());
