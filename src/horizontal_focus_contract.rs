@@ -126,18 +126,9 @@ pub fn resolve_horizontal_focus(
             Some((index, edge_distance, vertical_overlap))
         });
 
-    let best = match direction {
-        HorizontalDirection::Left => {
-            candidates.min_by_key(|(_, edge_distance, vertical_overlap)| {
-                (*edge_distance, usize::MAX - *vertical_overlap)
-            })
-        }
-        HorizontalDirection::Right => {
-            candidates.min_by_key(|(_, edge_distance, vertical_overlap)| {
-                (*edge_distance, usize::MAX - *vertical_overlap)
-            })
-        }
-    };
+    let best = candidates.min_by_key(|(_, edge_distance, vertical_overlap)| {
+        (*edge_distance, usize::MAX - *vertical_overlap)
+    });
 
     match (direction, best.map(|(index, _, _)| index)) {
         (_, Some(index)) => HorizontalFocusPlan::FocusPane(index),
