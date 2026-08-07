@@ -1,13 +1,15 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use crate::tab_identity_contract::retain_current_tab_state;
+
 pub fn reconcile_active_workspace_state<T: Clone>(
     workspace_state_by_tab: &mut HashMap<usize, T>,
     current_tab_ids: &HashSet<usize>,
     active_tab_id: Option<usize>,
     initial_workspace_state: Option<&T>,
 ) {
-    workspace_state_by_tab.retain(|tab_id, _| current_tab_ids.contains(tab_id));
+    retain_current_tab_state(workspace_state_by_tab, current_tab_ids);
     if let (Some(active_tab_id), Some(initial_workspace_state)) =
         (active_tab_id, initial_workspace_state)
     {

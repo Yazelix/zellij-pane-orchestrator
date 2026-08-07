@@ -160,7 +160,7 @@ impl ZellijPlugin for State {
                 self.active_tab_floating_panes_visible = tabs
                     .iter()
                     .any(|tab| tab.active && tab.are_floating_panes_visible);
-                self.reconcile_workspace_state(&tabs);
+                self.reconcile_workspace_state();
                 self.reconcile_ai_pane_activity_tabs(&tabs);
                 {
                     let mut last_known_layout_variant_by_tab =

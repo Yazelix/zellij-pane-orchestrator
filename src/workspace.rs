@@ -3,9 +3,6 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use yazelix_zellij_pane_orchestrator::tab_identity_contract::{
-    active_tab_id as select_active_tab_id, current_tab_ids as collect_current_tab_ids,
-};
 use zellij_tile::prelude::*;
 
 use crate::panes::pane_id_to_string;
@@ -94,12 +91,12 @@ impl State {
         }
     }
 
-    pub(crate) fn reconcile_workspace_state(&mut self, tabs: &[TabInfo]) {
-        let current_tab_ids = collect_current_tab_ids(tabs);
+    pub(crate) fn reconcile_workspace_state(&mut self) {
+        let current_tab_ids = self.tab_identity.current_tab_ids();
         reconcile_active_workspace_state(
             &mut self.workspace_state_by_tab,
             &current_tab_ids,
-            select_active_tab_id(tabs),
+            self.tab_identity.active_tab_id(),
             self.initial_workspace_state.as_ref(),
         );
     }
