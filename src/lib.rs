@@ -19,3 +19,4 @@ pub mod tab_identity_contract;
 pub mod timer_schedule_contract;
 pub mod transient_pane_contract;
 pub mod workspace_popup_contract;
+pub mod workspace_recovery_contract;

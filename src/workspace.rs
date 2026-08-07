@@ -15,6 +15,7 @@ use yazelix_zellij_pane_orchestrator::editor_open_contract::build_editor_change_
 use yazelix_zellij_pane_orchestrator::workspace_popup_contract::{
     workspace_popup_destination_id, workspace_popup_payload,
 };
+use yazelix_zellij_pane_orchestrator::workspace_recovery_contract::recovered_workspace_root;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkspaceState {
@@ -64,6 +65,32 @@ struct OpenTerminalRequest {
 }
 
 impl State {
+    pub(crate) fn recover_workspace_state_from_managed_editors(&mut self) {
+        for (tab_id, workspace_state) in &mut self.workspace_state_by_tab {
+            let Some(editor) = self
+                .tab_pane_caches
+                .managed_panes_by_tab
+                .get(tab_id)
+                .and_then(|panes| panes.editor)
+            else {
+                continue;
+            };
+            let Ok(editor_cwd) = get_pane_cwd(editor.pane_id) else {
+                continue;
+            };
+            let Some(root) = recovered_workspace_root(
+                Path::new(&workspace_state.root),
+                workspace_state.source == WorkspaceStateSource::Bootstrap,
+                &editor_cwd,
+            ) else {
+                continue;
+            };
+
+            workspace_state.root = root.display().to_string();
+            workspace_state.source = WorkspaceStateSource::Explicit;
+        }
+    }
+
     pub(crate) fn reconcile_workspace_state(&mut self, tabs: &[TabInfo]) {
         let current_tab_ids = collect_current_tab_ids(tabs);
         self.workspace_state_by_tab

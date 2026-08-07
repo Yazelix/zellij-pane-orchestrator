@@ -360,6 +360,7 @@ impl State {
         }
         self.workspace_status_pipe_payload_by_plugin
             .retain(|plugin_id, _| self.tab_pane_caches.has_zjstatus_plugin_id(*plugin_id));
+        self.recover_workspace_state_from_managed_editors();
         self.reconcile_sidebar_yazi_state();
         self.reconcile_ai_pane_activity_panes();
     }
