@@ -67,6 +67,9 @@ struct OpenTerminalRequest {
 impl State {
     pub(crate) fn recover_workspace_state_from_managed_editors(&mut self) {
         for (tab_id, workspace_state) in &mut self.workspace_state_by_tab {
+            if workspace_state.source != WorkspaceStateSource::Bootstrap {
+                continue;
+            }
             let Some(editor) = self
                 .tab_pane_caches
                 .managed_panes_by_tab
@@ -78,11 +81,9 @@ impl State {
             let Ok(editor_cwd) = get_pane_cwd(editor.pane_id) else {
                 continue;
             };
-            let Some(root) = recovered_workspace_root(
-                Path::new(&workspace_state.root),
-                workspace_state.source == WorkspaceStateSource::Bootstrap,
-                &editor_cwd,
-            ) else {
+            let Some(root) =
+                recovered_workspace_root(Path::new(&workspace_state.root), &editor_cwd)
+            else {
                 continue;
             };
 
