@@ -62,7 +62,6 @@ struct State {
     workspace_state_by_tab: HashMap<usize, WorkspaceState>,
     sidebar_yazi_state_by_tab: HashMap<usize, sidebar_yazi::SidebarYaziState>,
     ai_pane_activity_by_tab: HashMap<usize, Vec<SessionAiPaneActivity>>,
-    seen_tab_ids: HashSet<usize>,
     initial_workspace_state: Option<WorkspaceState>,
     runtime_dir: PathBuf,
     screen_saver_config: ScreenSaverConfig,

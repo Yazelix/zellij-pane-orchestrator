@@ -15,7 +15,9 @@ use yazelix_zellij_pane_orchestrator::editor_open_contract::build_editor_change_
 use yazelix_zellij_pane_orchestrator::workspace_popup_contract::{
     workspace_popup_destination_id, workspace_popup_payload,
 };
-use yazelix_zellij_pane_orchestrator::workspace_recovery_contract::recovered_workspace_root;
+use yazelix_zellij_pane_orchestrator::workspace_recovery_contract::{
+    reconcile_active_workspace_state, recovered_workspace_root,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkspaceState {
@@ -94,31 +96,12 @@ impl State {
 
     pub(crate) fn reconcile_workspace_state(&mut self, tabs: &[TabInfo]) {
         let current_tab_ids = collect_current_tab_ids(tabs);
-        self.workspace_state_by_tab
-            .retain(|tab_id, _| current_tab_ids.contains(tab_id));
-        self.seen_tab_ids
-            .retain(|tab_id| current_tab_ids.contains(tab_id));
-
-        let active_tab_id = select_active_tab_id(tabs);
-
-        if let Some(active_tab_id) = active_tab_id {
-            let is_new_tab = !self.seen_tab_ids.contains(&active_tab_id);
-            if !self.workspace_state_by_tab.contains_key(&active_tab_id) {
-                let inherited_workspace_state =
-                    if is_new_tab || self.workspace_state_by_tab.is_empty() {
-                        self.initial_workspace_state.clone()
-                    } else {
-                        None
-                    };
-
-                if let Some(workspace_state) = inherited_workspace_state {
-                    self.workspace_state_by_tab
-                        .insert(active_tab_id, workspace_state);
-                }
-            }
-        }
-
-        self.seen_tab_ids = current_tab_ids;
+        reconcile_active_workspace_state(
+            &mut self.workspace_state_by_tab,
+            &current_tab_ids,
+            select_active_tab_id(tabs),
+            self.initial_workspace_state.as_ref(),
+        );
     }
 
     pub(crate) fn retarget_workspace(&mut self, pipe_message: &PipeMessage) {
