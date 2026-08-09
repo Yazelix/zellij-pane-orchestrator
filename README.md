@@ -1,4 +1,4 @@
-# yazelix-zellij-pane-orchestrator
+# Zellij Pane Orchestrator
 
 Standalone Zellij plugin for tab-local pane orchestration. The plugin originated in Yazelix, but core pane behavior is usable without installing Yazelix.
 

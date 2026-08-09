@@ -117,7 +117,7 @@
 
           meta = {
             description = "Standalone Zellij pane orchestrator plugin from Yazelix";
-            homepage = "https://github.com/luccahuguet/yazelix-zellij-pane-orchestrator";
+            homepage = "https://github.com/Yazelix/zellij-pane-orchestrator";
             license = pkgs.lib.licenses.asl20;
           };
         };
