@@ -4,7 +4,6 @@ use std::time::Duration;
 use serde::Deserialize;
 use zellij_tile::prelude::*;
 
-use crate::panes::ManagedPaneKind;
 use crate::{
     State, COMMAND_STEP_DELAY_MS, RESULT_INVALID_PAYLOAD, RESULT_OK, RESULT_UNSUPPORTED_EDITOR,
 };
@@ -31,7 +30,7 @@ struct EditorCwdRequest {
 
 impl State {
     pub(crate) fn set_managed_editor_cwd(&self, pipe_message: &PipeMessage) {
-        let Some(editor_pane) = self.get_managed_pane(pipe_message, ManagedPaneKind::Editor) else {
+        let Some(editor_pane) = self.get_managed_editor_pane(pipe_message) else {
             return;
         };
 
@@ -66,7 +65,7 @@ impl State {
     }
 
     pub(crate) fn open_file_in_managed_editor(&self, pipe_message: &PipeMessage) {
-        let Some(editor_pane) = self.get_managed_pane(pipe_message, ManagedPaneKind::Editor) else {
+        let Some(editor_pane) = self.get_managed_editor_pane(pipe_message) else {
             return;
         };
 
@@ -122,7 +121,7 @@ impl State {
     }
 
     pub(crate) fn debug_write_literal(&self, pipe_message: &PipeMessage) {
-        let Some(editor_pane) = self.get_managed_pane(pipe_message, ManagedPaneKind::Editor) else {
+        let Some(editor_pane) = self.get_managed_editor_pane(pipe_message) else {
             return;
         };
 
@@ -138,7 +137,7 @@ impl State {
     }
 
     pub(crate) fn debug_send_escape(&self, pipe_message: &PipeMessage) {
-        let Some(editor_pane) = self.get_managed_pane(pipe_message, ManagedPaneKind::Editor) else {
+        let Some(editor_pane) = self.get_managed_editor_pane(pipe_message) else {
             return;
         };
 

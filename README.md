@@ -42,13 +42,14 @@ keybinds {
 }
 ```
 
+`toggle_sidebar` drives the configured swap layouts for a terminal or tiled
+plugin pane named `sidebar`. When the base layout starts with that sidebar open,
+put the collapsed swap layout first so the initial close is one native step.
+
 ## Standalone pipe API
 
 These commands are intended to work without Yazelix runtime paths:
 
-- `focus_editor`
-- `focus_sidebar`
-- `toggle_editor_sidebar_focus`
 - `move_focus_left_or_tab`
 - `move_focus_right_or_tab`
 - `next_family`
@@ -63,7 +64,6 @@ Yazelix integration commands depend on Yazelix-managed editor/sidebar/workspace 
 
 - `open_file`
 - `set_managed_editor_cwd`
-- `register_sidebar_yazi_state`
 - `register_ai_pane_activity`
 - `retarget_workspace`
 - `toggle_workspace_popup`

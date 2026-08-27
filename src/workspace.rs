@@ -5,8 +5,6 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use zellij_tile::prelude::*;
 
-use crate::panes::pane_id_to_string;
-use crate::sidebar_yazi::SidebarYaziState;
 use crate::{State, COMMAND_STEP_DELAY_MS, RESULT_INVALID_PAYLOAD, RESULT_MISSING, RESULT_OK};
 use yazelix_zellij_pane_orchestrator::editor_open_contract::build_editor_change_directory_command;
 use yazelix_zellij_pane_orchestrator::workspace_popup_contract::{
@@ -40,22 +38,12 @@ struct WorkspaceRetargetRequest {
     workspace_source: Option<WorkspaceStateSource>,
     cd_focused_pane: bool,
     editor: Option<String>,
-    sidebar_yazi: Option<WorkspaceSidebarYaziRegistration>,
-}
-
-#[derive(Deserialize)]
-struct WorkspaceSidebarYaziRegistration {
-    pane_id: String,
-    yazi_id: String,
-    cwd: String,
 }
 
 #[derive(Serialize)]
 struct WorkspaceRetargetResponse {
     status: String,
     editor_status: String,
-    sidebar_yazi_id: Option<String>,
-    sidebar_yazi_cwd: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -143,10 +131,6 @@ impl State {
         self.workspace_state_by_tab
             .insert(active_tab_id, workspace_state.clone());
 
-        if let Some(registration) = workspace_retarget_request.sidebar_yazi {
-            self.register_inline_sidebar_yazi_state(active_tab_id, registration);
-        }
-
         if workspace_retarget_request.cd_focused_pane {
             let Some(focused_pane_id) = self.get_focused_terminal_pane(pipe_message) else {
                 return;
@@ -190,50 +174,15 @@ impl State {
             })
             .unwrap_or_else(|| "skipped".to_string());
 
-        let sidebar_yazi_state = self.get_active_sidebar_yazi_state_snapshot(active_tab_id);
         let response = WorkspaceRetargetResponse {
             status: RESULT_OK.to_string(),
             editor_status,
-            sidebar_yazi_id: sidebar_yazi_state.map(|state| state.yazi_id.clone()),
-            sidebar_yazi_cwd: sidebar_yazi_state.map(|state| state.cwd.clone()),
         };
 
         match serde_json::to_string(&response) {
             Ok(serialized_response) => self.respond(pipe_message, &serialized_response),
             Err(_) => self.respond(pipe_message, RESULT_INVALID_PAYLOAD),
         }
-    }
-
-    fn register_inline_sidebar_yazi_state(
-        &mut self,
-        active_tab_id: usize,
-        registration: WorkspaceSidebarYaziRegistration,
-    ) {
-        let pane_id = registration.pane_id.trim().to_string();
-        let yazi_id = registration.yazi_id.trim().to_string();
-        let cwd = registration.cwd.trim().to_string();
-        if pane_id.is_empty() || yazi_id.is_empty() || cwd.is_empty() {
-            return;
-        }
-
-        let expected_sidebar_pane_id = self
-            .tab_pane_caches
-            .managed_panes_by_tab
-            .get(&active_tab_id)
-            .and_then(|managed_tab_panes| managed_tab_panes.sidebar)
-            .and_then(|sidebar| pane_id_to_string(Some(sidebar.pane_id)));
-        if expected_sidebar_pane_id.as_deref() != Some(pane_id.as_str()) {
-            return;
-        }
-
-        self.sidebar_yazi_state_by_tab.insert(
-            active_tab_id,
-            SidebarYaziState {
-                pane_id,
-                yazi_id,
-                cwd,
-            },
-        );
     }
 
     pub(crate) fn open_terminal_in_cwd(&self, pipe_message: &PipeMessage) {

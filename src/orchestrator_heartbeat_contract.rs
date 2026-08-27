@@ -57,7 +57,7 @@ mod tests {
             last_event_kind: Some("timer".to_string()),
             last_event_at_unix_seconds: Some(20),
             last_timer_at_unix_seconds: Some(20),
-            last_pipe_name: Some("focus_sidebar".to_string()),
+            last_pipe_name: Some("toggle_sidebar".to_string()),
             last_pipe_at_unix_seconds: Some(19),
             last_status_cache_write_at_unix_seconds: Some(18),
         });
@@ -75,7 +75,7 @@ mod tests {
                 },
                 "last_timer_at_unix_seconds": 20,
                 "last_pipe": {
-                    "name": "focus_sidebar",
+                    "name": "toggle_sidebar",
                     "at_unix_seconds": 19
                 },
                 "last_status_cache_write_at_unix_seconds": 18

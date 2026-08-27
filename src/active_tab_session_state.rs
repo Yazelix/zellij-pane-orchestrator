@@ -1,14 +1,14 @@
 //! Versioned JSON snapshot for `get_active_tab_session_state`.
 //!
 //! Compatibility policy:
-//! - `schema_version == 1` may add optional fields, but must not rename or remove existing fields.
-//! - Breaking field shape changes require a new schema version and a compatibility producer.
+//! - A schema version may add optional fields, but must not rename or remove existing fields.
+//! - Breaking field shape changes require a new schema version and a coordinated consumer update.
 //! - The schema carries session facts only. Presentation strings, colors, and bar/widget formatting
 //!   belong to consumers such as `yazelix_bar`.
 
 use serde::{Deserialize, Serialize};
 
-pub const ACTIVE_TAB_SESSION_SCHEMA_VERSION: i32 = 1;
+pub const ACTIVE_TAB_SESSION_SCHEMA_VERSION: i32 = 2;
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SessionWorkspace {
@@ -38,14 +38,6 @@ pub struct SessionLayout {
     /// Derived state: right agent sidebar visibility, when the managed agent exists.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_collapsed: Option<bool>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct SessionSidebarYazi {
-    /// Owned live state: Yazi instance registered by the sidebar wrapper.
-    pub yazi_id: String,
-    /// Owned live state: latest cwd reported by that Yazi instance.
-    pub cwd: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -109,7 +101,7 @@ pub struct SessionAiPaneActivity {
     /// Adapter state: pane identity associated with the activity signal.
     #[serde(default)]
     pub pane_id: String,
-    /// Adapter state: legacy stable activity token, retained for schema-v1 compatibility.
+    /// Adapter state: stable activity token retained for existing consumers.
     #[serde(default)]
     pub activity: String,
     /// Adapter state: normalized activity state for status-bus consumers.
@@ -152,32 +144,30 @@ pub struct ActiveTabReadState {
     pub active_swap_layout_name: Option<String>,
     pub sidebar_collapsed: Option<bool>,
     pub agent_collapsed: Option<bool>,
-    pub sidebar_yazi: Option<SessionSidebarYazi>,
     pub transient_panes: SessionTransientPanes,
     pub extensions: SessionStatusExtensions,
 }
 
-/// Stable v1 payload for the active tab. Serialized to JSON for the pipe response.
+/// Stable v2 payload for the active tab. Serialized to JSON for the pipe response.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct ActiveTabSessionStateV1 {
+pub struct ActiveTabSessionStateV2 {
     pub schema_version: i32,
     pub active_tab_position: usize,
     pub workspace: Option<SessionWorkspace>,
     pub managed_panes: SessionManagedPanes,
     pub focus_context: String,
     pub layout: SessionLayout,
-    pub sidebar_yazi: Option<SessionSidebarYazi>,
     #[serde(default)]
     pub transient_panes: SessionTransientPanes,
     #[serde(default)]
     pub extensions: SessionStatusExtensions,
 }
 
-pub fn build_active_tab_session_state_v1(
+pub fn build_active_tab_session_state_v2(
     active_tab_position: usize,
     read_state: ActiveTabReadState,
-) -> ActiveTabSessionStateV1 {
-    ActiveTabSessionStateV1 {
+) -> ActiveTabSessionStateV2 {
+    ActiveTabSessionStateV2 {
         schema_version: ACTIVE_TAB_SESSION_SCHEMA_VERSION,
         active_tab_position,
         workspace: read_state
@@ -194,7 +184,6 @@ pub fn build_active_tab_session_state_v1(
             sidebar_collapsed: read_state.sidebar_collapsed,
             agent_collapsed: read_state.agent_collapsed,
         },
-        sidebar_yazi: read_state.sidebar_yazi,
         transient_panes: read_state.transient_panes,
         extensions: read_state.extensions,
     }
@@ -209,7 +198,7 @@ mod tests {
     // Regression: the stable active-tab snapshot must prefer explicit workspace truth over bootstrap fallback.
     #[test]
     fn session_snapshot_prefers_explicit_workspace_and_keeps_typed_session_fields() {
-        let snapshot = build_active_tab_session_state_v1(
+        let snapshot = build_active_tab_session_state_v2(
             3,
             ActiveTabReadState {
                 explicit_workspace: Some(SessionWorkspace {
@@ -227,10 +216,6 @@ mod tests {
                 active_swap_layout_name: Some("single_closed".into()),
                 sidebar_collapsed: Some(true),
                 agent_collapsed: None,
-                sidebar_yazi: Some(SessionSidebarYazi {
-                    yazi_id: "sidebar-123".into(),
-                    cwd: "/tmp/project".into(),
-                }),
                 transient_panes: SessionTransientPanes {
                     popup: Some(SessionTransientPane {
                         pane_id: "terminal:11".into(),
@@ -269,13 +254,6 @@ mod tests {
             }
         );
         assert_eq!(
-            snapshot.sidebar_yazi,
-            Some(SessionSidebarYazi {
-                yazi_id: "sidebar-123".into(),
-                cwd: "/tmp/project".into(),
-            })
-        );
-        assert_eq!(
             snapshot.transient_panes.popup,
             Some(SessionTransientPane {
                 pane_id: "terminal:11".into(),
@@ -287,7 +265,7 @@ mod tests {
     // Invariant: bootstrap workspace remains the fallback only when no explicit workspace state exists for the tab.
     #[test]
     fn session_snapshot_falls_back_to_bootstrap_workspace_when_explicit_is_missing() {
-        let snapshot = build_active_tab_session_state_v1(
+        let snapshot = build_active_tab_session_state_v2(
             1,
             ActiveTabReadState {
                 explicit_workspace: None,
@@ -302,7 +280,6 @@ mod tests {
                 active_swap_layout_name: None,
                 sidebar_collapsed: None,
                 agent_collapsed: None,
-                sidebar_yazi: None,
                 transient_panes: SessionTransientPanes::default(),
                 extensions: SessionStatusExtensions::default(),
             },
@@ -320,14 +297,13 @@ mod tests {
             Some("terminal:9".into())
         );
         assert_eq!(snapshot.focus_context, "other");
-        assert_eq!(snapshot.sidebar_yazi, None);
         assert_eq!(snapshot.transient_panes, SessionTransientPanes::default());
     }
 
-    // Defends: additive v1 fields remain readable by consumers replaying older active-tab payload fixtures.
+    // Defends: additive v2 fields remain readable by consumers replaying older active-tab payload fixtures.
     #[test]
-    fn deserializes_older_v1_payloads_with_default_extension_fields() {
-        let decoded: ActiveTabSessionStateV1 = serde_json::from_value(json!({
+    fn deserializes_older_v2_payloads_with_default_extension_fields() {
+        let decoded: ActiveTabSessionStateV2 = serde_json::from_value(json!({
             "schema_version": ACTIVE_TAB_SESSION_SCHEMA_VERSION,
             "active_tab_position": 1,
             "workspace": null,
@@ -340,7 +316,6 @@ mod tests {
                 "active_swap_layout_name": null,
                 "sidebar_collapsed": null
             },
-            "sidebar_yazi": null
         }))
         .unwrap();
 
@@ -351,7 +326,7 @@ mod tests {
     // Defends: the status bus exposes stable session facts without embedding bar/zjstatus formatting.
     #[test]
     fn serializes_representative_payload_without_presentation_formatting() {
-        let snapshot = build_active_tab_session_state_v1(
+        let snapshot = build_active_tab_session_state_v2(
             2,
             ActiveTabReadState {
                 explicit_workspace: Some(SessionWorkspace {
@@ -366,7 +341,6 @@ mod tests {
                 active_swap_layout_name: Some("single_open_agent_closed".into()),
                 sidebar_collapsed: Some(false),
                 agent_collapsed: Some(true),
-                sidebar_yazi: None,
                 transient_panes: SessionTransientPanes {
                     popup: None,
                     menu: Some(SessionTransientPane {
@@ -386,7 +360,7 @@ mod tests {
         );
 
         let serialized = serde_json::to_string(&snapshot).unwrap();
-        let decoded: ActiveTabSessionStateV1 = serde_json::from_str(&serialized).unwrap();
+        let decoded: ActiveTabSessionStateV2 = serde_json::from_str(&serialized).unwrap();
         let value = serde_json::to_value(&snapshot).unwrap();
 
         assert_eq!(decoded, snapshot);
@@ -410,7 +384,6 @@ mod tests {
                     "sidebar_collapsed": false,
                     "agent_collapsed": true
                 },
-                "sidebar_yazi": null,
                 "transient_panes": {
                     "popup": null,
                     "menu": {

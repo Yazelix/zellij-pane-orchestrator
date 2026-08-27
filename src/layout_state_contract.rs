@@ -42,12 +42,12 @@ pub struct LayoutVariant {
 }
 
 const LAYOUT_ORDER: &[LayoutVariant] = &[
-    LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Absent),
     LayoutVariant::new(
         LayoutFamily::Single,
         SidebarState::Closed,
         AgentState::Absent,
     ),
+    LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Absent),
     LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Open),
     LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Closed),
     LayoutVariant::new(LayoutFamily::Single, SidebarState::Closed, AgentState::Open),
@@ -57,6 +57,10 @@ const LAYOUT_ORDER: &[LayoutVariant] = &[
         AgentState::Closed,
     ),
 ];
+
+pub fn is_base_layout_name(active_swap_layout_name: Option<&str>) -> bool {
+    active_swap_layout_name.is_none() || active_swap_layout_name == Some("BASE")
+}
 
 impl LayoutVariant {
     pub const fn new(
@@ -183,6 +187,13 @@ fn layout_order_index(variant: LayoutVariant) -> Option<usize> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn absent_swap_layout_name_is_the_base_layout() {
+        assert!(is_base_layout_name(None));
+        assert!(is_base_layout_name(Some("BASE")));
+        assert!(!is_base_layout_name(Some("single_open")));
+    }
+
     // Defends: existing layout names continue to parse as no-agent variants for current sessions.
     #[test]
     fn parses_existing_no_agent_layout_names() {
@@ -209,25 +220,41 @@ mod tests {
         );
     }
 
-    // Defends: old no-agent sidebar toggles stay inside the no-agent layout block.
+    // Defends: the collapsed-first swap contract makes close previous and open next.
     #[test]
     fn no_agent_sidebar_toggle_is_adjacent() {
-        let plan = swap_step_plan(
-            LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Absent),
-            LayoutVariant::new(
-                LayoutFamily::Single,
-                SidebarState::Closed,
-                AgentState::Absent,
-            ),
-        )
-        .unwrap();
+        let open = LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Absent);
+        let closed = LayoutVariant::new(
+            LayoutFamily::Single,
+            SidebarState::Closed,
+            AgentState::Absent,
+        );
 
         assert_eq!(
-            plan,
-            SwapLayoutStepPlan {
-                direction: SwapStepDirection::Next,
-                steps: 1
-            }
+            [
+                swap_step_plan(open, closed),
+                swap_step_plan(closed, open),
+                swap_step_plan_from_base(closed),
+                swap_step_plan_from_base(open),
+            ],
+            [
+                Some(SwapLayoutStepPlan {
+                    direction: SwapStepDirection::Previous,
+                    steps: 1,
+                }),
+                Some(SwapLayoutStepPlan {
+                    direction: SwapStepDirection::Next,
+                    steps: 1,
+                }),
+                Some(SwapLayoutStepPlan {
+                    direction: SwapStepDirection::Next,
+                    steps: 1,
+                }),
+                Some(SwapLayoutStepPlan {
+                    direction: SwapStepDirection::Next,
+                    steps: 2,
+                }),
+            ]
         );
     }
 

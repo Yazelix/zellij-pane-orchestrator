@@ -2,9 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 use yazelix_zellij_pane_orchestrator::active_tab_session_state::{
-    build_active_tab_session_state_v1, ActiveTabReadState, ActiveTabSessionStateV1,
-    SessionSidebarYazi, SessionStatusExtensions, SessionTransientPane, SessionTransientPanes,
-    SessionWorkspace,
+    build_active_tab_session_state_v2, ActiveTabReadState, ActiveTabSessionStateV2,
+    SessionStatusExtensions, SessionTransientPane, SessionTransientPanes, SessionWorkspace,
 };
 use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::{
     horizontal_role_for_pane, is_visible_popup_pane, resolve_horizontal_focus, HorizontalDirection,
@@ -13,9 +12,7 @@ use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::{
 use yazelix_zellij_pane_orchestrator::pane_contract::{
     resolve_focus_context, select_managed_pane_index, FocusContextPolicy, PaneSnapshot,
 };
-use yazelix_zellij_pane_orchestrator::sidebar_contract::{
-    resolve_sidebar_focus_toggle, SidebarFocusTogglePlan,
-};
+use yazelix_zellij_pane_orchestrator::sidebar_contract::is_managed_sidebar_plugin;
 use yazelix_zellij_pane_orchestrator::tab_identity_contract::{
     position_pane_identity_conflicts_with_cached_tabs, retain_current_tab_state,
 };
@@ -25,10 +22,7 @@ use yazelix_zellij_pane_orchestrator::transient_pane_contract::{
 use zellij_tile::prelude::*;
 
 use crate::workspace::WorkspaceStateSource;
-use crate::{
-    State, RESULT_FOCUSED_EDITOR, RESULT_FOCUSED_SIDEBAR, RESULT_INVALID_PAYLOAD, RESULT_MISSING,
-    RESULT_OK, RESULT_OPENED_SIDEBAR,
-};
+use crate::{State, RESULT_INVALID_PAYLOAD, RESULT_MISSING, RESULT_OK};
 
 pub(crate) const EDITOR_TITLE: &str = "editor";
 pub(crate) const SIDEBAR_TITLE: &str = "sidebar";
@@ -59,12 +53,6 @@ pub(crate) struct ManagedTabPanes {
     pub(crate) editor: Option<ManagedTerminalPane>,
     pub(crate) sidebar: Option<ManagedTerminalPane>,
     pub(crate) agent: Option<ManagedTerminalPane>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum ManagedPaneKind {
-    Editor,
-    Sidebar,
 }
 
 pub(crate) type FocusContext = FocusContextPolicy;
@@ -187,8 +175,6 @@ struct MaintainerDebugEditorState {
     editor_pane_id: Option<String>,
     sidebar_pane_id: Option<String>,
     agent_pane_id: Option<String>,
-    sidebar_yazi_id: Option<String>,
-    sidebar_yazi_cwd: Option<String>,
     sidebar_is_collapsed: Option<bool>,
     agent_is_collapsed: Option<bool>,
 }
@@ -207,7 +193,7 @@ fn build_managed_panes_by_tab(
             tab_id,
             ManagedTabPanes {
                 editor: select_managed_terminal_pane(panes, EDITOR_TITLE),
-                sidebar: select_managed_terminal_pane(panes, SIDEBAR_TITLE),
+                sidebar: select_managed_sidebar_pane(panes),
                 agent: select_managed_terminal_pane(panes, AGENT_TITLE),
             },
         );
@@ -246,15 +232,28 @@ fn build_focus_context_by_tab(
         let Some(tab_id) = tab_id_by_position.get(tab_position).copied() else {
             continue;
         };
-        let focused_pane = panes.iter().find(|pane| pane.is_focused && !pane.is_plugin);
+        let focused_pane = panes.iter().find(|pane| {
+            pane.is_focused
+                && (!pane.is_plugin
+                    || is_managed_sidebar_plugin(
+                        pane.is_plugin,
+                        pane.exited,
+                        pane.is_floating,
+                        &pane.title,
+                    ))
+        });
         let previous_focus_context = previous_focus_context_by_tab
             .get(&tab_id)
             .copied()
             .unwrap_or(FocusContext::Other);
-        let focus_context = resolve_focus_context(
-            focused_pane.map(|pane| pane.title.as_str()),
-            previous_focus_context,
-        );
+        let focused_title = focused_pane.map(|pane| {
+            if pane.is_plugin {
+                SIDEBAR_TITLE
+            } else {
+                pane.title.as_str()
+            }
+        });
+        let focus_context = resolve_focus_context(focused_title, previous_focus_context);
         focus_context_by_tab.insert(tab_id, focus_context);
     }
 
@@ -418,8 +417,6 @@ impl State {
         let agent_pane = active_tab_id
             .and_then(|tab_id| self.tab_pane_caches.managed_panes_by_tab.get(&tab_id))
             .and_then(|managed_tab_panes| managed_tab_panes.agent);
-        let sidebar_yazi_state =
-            active_tab_id.and_then(|tab_id| self.get_active_sidebar_yazi_state_snapshot(tab_id));
         let transient_panes = build_session_transient_panes(
             active_tab_id
                 .and_then(|tab_id| self.tab_pane_caches.terminal_panes_by_tab.get(&tab_id))
@@ -449,10 +446,6 @@ impl State {
             editor_pane_id: pane_id_to_string(editor_pane.map(|pane| pane.pane_id)),
             sidebar_pane_id: pane_id_to_string(sidebar_pane.map(|pane| pane.pane_id)),
             agent_pane_id: pane_id_to_string(agent_pane.map(|pane| pane.pane_id)),
-            sidebar_yazi: sidebar_yazi_state.map(|state| SessionSidebarYazi {
-                yazi_id: state.yazi_id.clone(),
-                cwd: state.cwd.clone(),
-            }),
             sidebar_collapsed: active_tab_id.and_then(|tab_id| self.sidebar_is_closed(tab_id)),
             agent_collapsed: active_tab_id.and_then(|tab_id| self.agent_is_closed(tab_id)),
             focus_context: focus_context.to_string(),
@@ -464,101 +457,14 @@ impl State {
     pub(crate) fn active_tab_session_state_snapshot(
         &self,
         active_tab_id: usize,
-    ) -> ActiveTabSessionStateV1 {
+    ) -> ActiveTabSessionStateV2 {
         let active_tab_position = self
             .tab_identity
             .position_for_tab_id(active_tab_id)
             .or(self.tab_identity.active_tab_position())
             .unwrap_or(active_tab_id);
         let read_state = self.collect_active_tab_read_state(Some(active_tab_id));
-        build_active_tab_session_state_v1(active_tab_position, read_state)
-    }
-
-    pub(crate) fn focus_managed_pane(
-        &self,
-        pipe_message: &PipeMessage,
-        pane_kind: ManagedPaneKind,
-    ) {
-        let Some(managed_pane) = self.get_managed_pane(pipe_message, pane_kind) else {
-            return;
-        };
-
-        let sidebar_is_closed = if matches!(pane_kind, ManagedPaneKind::Sidebar) {
-            self.tab_identity
-                .active_tab_id()
-                .and_then(|tab_id| self.sidebar_is_closed(tab_id))
-                .unwrap_or(false)
-        } else {
-            false
-        };
-
-        if sidebar_is_closed {
-            if let Some(active_tab_id) = self.tab_identity.active_tab_id() {
-                self.open_sidebar_and_focus_after_layout_settle_for_tab(active_tab_id);
-            } else {
-                self.open_sidebar_and_focus_after_layout_settle();
-            }
-        } else {
-            focus_pane_with_id(managed_pane.pane_id, false, false);
-        }
-        self.respond(pipe_message, RESULT_OK);
-    }
-
-    pub(crate) fn toggle_editor_sidebar_focus(&self, pipe_message: &PipeMessage) {
-        let Some(active_tab_id) = self.ensure_action_ready(pipe_message) else {
-            return;
-        };
-
-        let Some(managed_tab_panes) = self
-            .tab_pane_caches
-            .managed_panes_by_tab
-            .get(&active_tab_id)
-        else {
-            self.respond(pipe_message, RESULT_MISSING);
-            return;
-        };
-
-        let focus_context = self
-            .tab_pane_caches
-            .focus_context_by_tab
-            .get(&active_tab_id)
-            .copied()
-            .unwrap_or(FocusContext::Other);
-        let sidebar_is_closed = self.sidebar_is_closed(active_tab_id).unwrap_or(false);
-        let plan = resolve_sidebar_focus_toggle(
-            focus_context,
-            managed_tab_panes.sidebar.is_some(),
-            sidebar_is_closed,
-            managed_tab_panes.editor.is_some(),
-        );
-
-        match plan {
-            SidebarFocusTogglePlan::FocusEditor => {
-                if let Some(target_pane) = managed_tab_panes.editor {
-                    focus_pane_with_id(target_pane.pane_id, false, false);
-                    self.respond(pipe_message, RESULT_FOCUSED_EDITOR);
-                } else {
-                    self.respond(pipe_message, RESULT_MISSING);
-                }
-            }
-            SidebarFocusTogglePlan::FocusSidebar => {
-                if let Some(target_pane) = managed_tab_panes.sidebar {
-                    focus_pane_with_id(target_pane.pane_id, false, false);
-                    self.respond(pipe_message, RESULT_FOCUSED_SIDEBAR);
-                } else {
-                    self.respond(pipe_message, RESULT_MISSING);
-                }
-            }
-            SidebarFocusTogglePlan::OpenAndFocusSidebar => {
-                if managed_tab_panes.sidebar.is_some() {
-                    self.open_sidebar_and_focus_after_layout_settle_for_tab(active_tab_id);
-                    self.respond(pipe_message, RESULT_OPENED_SIDEBAR);
-                } else {
-                    self.respond(pipe_message, RESULT_MISSING);
-                }
-            }
-            SidebarFocusTogglePlan::MissingTarget => self.respond(pipe_message, RESULT_MISSING),
-        }
+        build_active_tab_session_state_v2(active_tab_position, read_state)
     }
 
     pub(crate) fn move_horizontal_focus_or_tab(
@@ -666,14 +572,6 @@ impl State {
             editor_pane_id: read_state.editor_pane_id,
             sidebar_pane_id: read_state.sidebar_pane_id,
             agent_pane_id: read_state.agent_pane_id,
-            sidebar_yazi_id: read_state
-                .sidebar_yazi
-                .as_ref()
-                .map(|state| state.yazi_id.clone()),
-            sidebar_yazi_cwd: read_state
-                .sidebar_yazi
-                .as_ref()
-                .map(|state| state.cwd.clone()),
             sidebar_is_collapsed: read_state.sidebar_collapsed,
             agent_is_collapsed: read_state.agent_collapsed,
         };
@@ -696,10 +594,9 @@ impl State {
         }
     }
 
-    pub(crate) fn get_managed_pane(
+    pub(crate) fn get_managed_editor_pane(
         &self,
         pipe_message: &PipeMessage,
-        pane_kind: ManagedPaneKind,
     ) -> Option<ManagedTerminalPane> {
         let active_tab_id = self.ensure_action_ready(pipe_message)?;
 
@@ -707,10 +604,7 @@ impl State {
             .tab_pane_caches
             .managed_panes_by_tab
             .get(&active_tab_id)
-            .and_then(|managed_tab_panes| match pane_kind {
-                ManagedPaneKind::Editor => managed_tab_panes.editor,
-                ManagedPaneKind::Sidebar => managed_tab_panes.sidebar,
-            });
+            .and_then(|managed_tab_panes| managed_tab_panes.editor);
 
         match managed_pane {
             Some(managed_pane) => Some(managed_pane),
@@ -802,6 +696,25 @@ fn select_managed_terminal_pane(
     selected_pane.map(|pane| ManagedTerminalPane {
         pane_id: PaneId::Terminal(pane.id),
         pane_columns: pane.pane_columns,
+    })
+}
+
+fn select_managed_sidebar_pane(panes: &[PaneInfo]) -> Option<ManagedTerminalPane> {
+    select_managed_terminal_pane(panes, SIDEBAR_TITLE).or_else(|| {
+        panes
+            .iter()
+            .find(|pane| {
+                is_managed_sidebar_plugin(
+                    pane.is_plugin,
+                    pane.exited,
+                    pane.is_floating,
+                    &pane.title,
+                )
+            })
+            .map(|pane| ManagedTerminalPane {
+                pane_id: PaneId::Plugin(pane.id),
+                pane_columns: pane.pane_columns,
+            })
     })
 }
 

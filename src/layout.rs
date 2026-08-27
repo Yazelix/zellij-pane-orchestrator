@@ -2,21 +2,18 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use yazelix_zellij_pane_orchestrator::layout_state_contract::{
-    swap_step_plan, swap_step_plan_from_base, AgentState, LayoutFamily, LayoutFamilyDirection,
-    LayoutVariant, SidebarState, SwapLayoutStepPlan, SwapStepDirection,
+    is_base_layout_name, swap_step_plan, swap_step_plan_from_base, AgentState, LayoutFamily,
+    LayoutFamilyDirection, LayoutVariant, SidebarState, SwapLayoutStepPlan, SwapStepDirection,
 };
-use yazelix_zellij_pane_orchestrator::pane_contract::FocusContextPolicy;
 use yazelix_zellij_pane_orchestrator::sidebar_contract::{
-    resolve_sidebar_hide, resolve_sidebar_visibility_toggle, sidebar_close_swap_steps,
-    sidebar_post_layout_focus_nudges, SidebarFocusNudgeDirection, SidebarPostLayoutFocus,
-    SidebarVisibilityAction,
+    resolve_sidebar_hide, resolve_sidebar_visibility_toggle, sidebar_post_layout_focus_nudges,
+    SidebarPostLayoutFocus, SidebarVisibilityAction,
 };
 use zellij_tile::prelude::*;
 
 use crate::panes::ManagedTabPanes;
 use crate::{State, RESULT_MISSING, RESULT_OK, RESULT_UNKNOWN_LAYOUT, SWAP_LAYOUT_STEP_DELAY_MS};
 
-const BASE_LAYOUT_NAME: &str = "BASE";
 const CLOSED_BASE_SIDEBAR_COLUMNS: usize = 2;
 
 impl State {
@@ -90,11 +87,7 @@ impl State {
 
         let plan = resolve_sidebar_visibility_toggle(
             sidebar_is_closed,
-            match focus_context {
-                crate::panes::FocusContext::Editor => FocusContextPolicy::Editor,
-                crate::panes::FocusContext::Sidebar => FocusContextPolicy::Sidebar,
-                crate::panes::FocusContext::Other => FocusContextPolicy::Other,
-            },
+            focus_context,
             has_editor,
             has_focus_fallback,
         );
@@ -154,11 +147,7 @@ impl State {
 
         if let Some(post_layout_focus) = resolve_sidebar_hide(
             sidebar_is_closed,
-            match focus_context {
-                crate::panes::FocusContext::Editor => FocusContextPolicy::Editor,
-                crate::panes::FocusContext::Sidebar => FocusContextPolicy::Sidebar,
-                crate::panes::FocusContext::Other => FocusContextPolicy::Other,
-            },
+            focus_context,
             has_editor,
             has_focus_fallback,
         ) {
@@ -235,8 +224,7 @@ impl State {
     fn active_layout_is_base(&self, active_tab_id: usize) -> bool {
         self.active_swap_layout_name_by_tab
             .get(&active_tab_id)
-            .and_then(|layout| layout.as_deref())
-            .is_some_and(|layout| layout == BASE_LAYOUT_NAME)
+            .is_some_and(|layout| is_base_layout_name(layout.as_deref()))
     }
 
     fn active_layout_is_collapsed_base(&self, active_tab_id: usize) -> bool {
@@ -266,16 +254,38 @@ impl State {
     }
 
     pub(crate) fn run_next_swap_layout_steps(&self, steps: usize) {
-        for _ in 0..steps {
-            next_swap_layout();
-            sleep(Duration::from_millis(SWAP_LAYOUT_STEP_DELAY_MS));
-        }
+        self.run_swap_layout_steps(SwapStepDirection::Next, steps);
     }
 
     pub(crate) fn run_previous_swap_layout_steps(&self, steps: usize) {
-        for _ in 0..steps {
-            previous_swap_layout();
-            sleep(Duration::from_millis(SWAP_LAYOUT_STEP_DELAY_MS));
+        self.run_swap_layout_steps(SwapStepDirection::Previous, steps);
+    }
+
+    pub(crate) fn run_pending_swap_layout_step(&self) {
+        let Some(plan) = self.pending_swap_layout_plan.take() else {
+            return;
+        };
+        self.run_swap_layout_steps(plan.direction, plan.steps);
+    }
+
+    fn run_swap_layout_steps(&self, direction: SwapStepDirection, steps: usize) {
+        self.pending_swap_layout_plan.replace(None);
+        if steps == 0 {
+            return;
+        }
+
+        match direction {
+            SwapStepDirection::Next => next_swap_layout(),
+            SwapStepDirection::Previous => previous_swap_layout(),
+        }
+
+        if steps > 1 {
+            self.pending_swap_layout_plan
+                .replace(Some(SwapLayoutStepPlan {
+                    direction,
+                    steps: steps - 1,
+                }));
+            set_timeout(SWAP_LAYOUT_STEP_DELAY_MS as f64 / 1000.0);
         }
     }
 
@@ -318,7 +328,7 @@ impl State {
 
     fn set_sidebar_state(&self, active_tab_id: usize, sidebar_state: SidebarState) {
         if self.active_layout_is_base(active_tab_id) && sidebar_state == SidebarState::Closed {
-            self.run_next_swap_layout_steps(sidebar_close_swap_steps(true));
+            self.run_next_swap_layout_steps(1);
             return;
         }
 
@@ -335,31 +345,10 @@ impl State {
         }
     }
 
-    pub(crate) fn open_sidebar_and_focus_after_layout_settle(&self) {
-        if let Some(active_tab_id) = self.tab_identity.active_tab_id() {
-            self.open_sidebar_and_focus_after_layout_settle_for_tab(active_tab_id);
-            return;
-        }
-        self.run_previous_swap_layout_steps(1);
-        self.run_sidebar_post_layout_focus(SidebarPostLayoutFocus::MoveLeftToSidebar);
-    }
-
-    pub(crate) fn open_sidebar_and_focus_after_layout_settle_for_tab(&self, active_tab_id: usize) {
-        if self.active_layout_is_collapsed_base(active_tab_id) {
-            self.run_next_swap_layout_steps(1);
-        } else {
-            self.set_sidebar_state(active_tab_id, SidebarState::Open);
-        }
-        self.run_sidebar_post_layout_focus(SidebarPostLayoutFocus::MoveLeftToSidebar);
-    }
-
     fn run_sidebar_post_layout_focus(&self, post_layout_focus: SidebarPostLayoutFocus) {
-        for nudge in sidebar_post_layout_focus_nudges(post_layout_focus) {
-            sleep(Duration::from_millis(nudge.delay_ms));
-            move_focus(match nudge.direction {
-                SidebarFocusNudgeDirection::Left => Direction::Left,
-                SidebarFocusNudgeDirection::Right => Direction::Right,
-            });
+        for delay_ms in sidebar_post_layout_focus_nudges(post_layout_focus) {
+            sleep(Duration::from_millis(*delay_ms));
+            move_focus(Direction::Right);
         }
     }
 }

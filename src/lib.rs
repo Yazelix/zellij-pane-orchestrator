@@ -10,7 +10,6 @@ pub mod right_sidebar_command_contract;
 pub mod runtime_config_contract;
 pub mod screen_saver_contract;
 pub mod sidebar_contract;
-pub mod sidebar_state_contract;
 pub mod status_bar_cache_contract;
 pub mod status_bar_tab_activity_pipe_contract;
 pub mod status_bar_workspace_pipe_contract;

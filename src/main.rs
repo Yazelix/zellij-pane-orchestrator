@@ -6,7 +6,6 @@ mod layout;
 mod panes;
 mod runtime_config;
 mod screen_saver;
-mod sidebar_yazi;
 mod status_bar_cache;
 mod workspace;
 
@@ -19,22 +18,18 @@ use workspace::{bootstrap_workspace_root, WorkspaceState};
 use yazelix_zellij_pane_orchestrator::active_tab_session_state::SessionAiPaneActivity;
 use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::HorizontalDirection;
 use yazelix_zellij_pane_orchestrator::layout_state_contract::{
-    LayoutFamilyDirection, LayoutVariant,
+    LayoutFamilyDirection, LayoutVariant, SwapLayoutStepPlan,
 };
 use yazelix_zellij_pane_orchestrator::right_sidebar_command_contract::RightSidebarCommandConfig;
 use yazelix_zellij_pane_orchestrator::screen_saver_contract::ScreenSaverConfig;
 use yazelix_zellij_pane_orchestrator::status_bar_cache_contract::StatusBarCacheRuntime;
-use yazelix_zellij_pane_orchestrator::tab_identity_contract::{
-    retain_current_tab_state, TabIdentityState,
-};
+use yazelix_zellij_pane_orchestrator::tab_identity_contract::TabIdentityState;
 use yazelix_zellij_pane_orchestrator::timer_schedule_contract::next_timer_delay;
 use zellij_tile::prelude::*;
 
 pub(crate) const RESULT_OK: &str = "ok";
 pub(crate) const RESULT_FOCUSED_EDITOR: &str = "focused_editor";
-pub(crate) const RESULT_FOCUSED_SIDEBAR: &str = "focused_sidebar";
 pub(crate) const RESULT_FOCUSED_AGENT: &str = "focused_agent";
-pub(crate) const RESULT_OPENED_SIDEBAR: &str = "opened_sidebar";
 pub(crate) const RESULT_MISSING: &str = "missing";
 pub(crate) const RESULT_NOT_READY: &str = "not_ready";
 pub(crate) const RESULT_DENIED: &str = "permissions_denied";
@@ -44,7 +39,7 @@ pub(crate) const RESULT_UNSUPPORTED_EDITOR: &str = "unsupported_editor";
 pub(crate) const RESULT_STALE_GENERATION: &str = "stale_generation";
 pub(crate) const RESULT_VERSION_MISMATCH: &str = "version_mismatch";
 pub(crate) const COMMAND_STEP_DELAY_MS: u64 = 35;
-pub(crate) const SWAP_LAYOUT_STEP_DELAY_MS: u64 = 1;
+pub(crate) const SWAP_LAYOUT_STEP_DELAY_MS: u64 = 35;
 const TAB_LOCAL_PANE_RECONCILE_DELAY: Duration = Duration::from_millis(500);
 
 #[derive(Default)]
@@ -52,6 +47,7 @@ struct State {
     tab_identity: TabIdentityState,
     active_swap_layout_name_by_tab: HashMap<usize, Option<String>>,
     last_known_layout_variant_by_tab: RefCell<HashMap<usize, LayoutVariant>>,
+    pending_swap_layout_plan: RefCell<Option<SwapLayoutStepPlan>>,
     tab_pane_caches: panes::TabPaneCaches,
     last_pane_manifest: Option<PaneManifest>,
     tab_local_pane_reconcile_next_flush: Option<Instant>,
@@ -60,7 +56,6 @@ struct State {
     tab_sync_panes_active_by_tab: HashMap<usize, bool>,
     active_tab_floating_panes_visible: bool,
     workspace_state_by_tab: HashMap<usize, WorkspaceState>,
-    sidebar_yazi_state_by_tab: HashMap<usize, sidebar_yazi::SidebarYaziState>,
     ai_pane_activity_by_tab: HashMap<usize, Vec<SessionAiPaneActivity>>,
     initial_workspace_state: Option<WorkspaceState>,
     runtime_dir: PathBuf,
@@ -194,6 +189,7 @@ impl ZellijPlugin for State {
             Event::InputReceived => self.record_screen_saver_input(),
             Event::Timer(_) => {
                 self.timer_armed_for = None;
+                self.run_pending_swap_layout_step();
                 self.record_orchestrator_timer();
                 self.handle_tab_local_pane_reconcile_timer();
                 self.handle_screen_saver_timer();
@@ -217,18 +213,6 @@ impl ZellijPlugin for State {
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
         self.record_orchestrator_pipe(pipe_message.name.as_str());
         match pipe_message.name.as_str() {
-            "focus_editor" => {
-                self.focus_managed_pane(&pipe_message, panes::ManagedPaneKind::Editor);
-                false
-            }
-            "focus_sidebar" => {
-                self.focus_managed_pane(&pipe_message, panes::ManagedPaneKind::Sidebar);
-                false
-            }
-            "toggle_editor_sidebar_focus" => {
-                self.toggle_editor_sidebar_focus(&pipe_message);
-                false
-            }
             "toggle_editor_right_sidebar_focus" => {
                 self.toggle_editor_right_sidebar_focus(&pipe_message);
                 false
@@ -267,10 +251,6 @@ impl ZellijPlugin for State {
             }
             "hide_sidebar" => {
                 self.hide_sidebar(&pipe_message);
-                false
-            }
-            "register_sidebar_yazi_state" => {
-                self.register_sidebar_yazi_state(&pipe_message);
                 false
             }
             "register_ai_pane_activity" => {
@@ -360,7 +340,6 @@ impl State {
         self.workspace_status_pipe_payload_by_plugin
             .retain(|plugin_id, _| self.tab_pane_caches.has_zjstatus_plugin_id(*plugin_id));
         self.recover_workspace_state_from_managed_editors();
-        self.reconcile_sidebar_yazi_state();
         self.reconcile_ai_pane_activity_panes();
     }
 
@@ -420,7 +399,6 @@ impl State {
             .borrow_mut()
             .retain(|tab_id, _| current_tab_ids.contains(tab_id));
         self.tab_pane_caches.retain_current_tabs(&current_tab_ids);
-        retain_current_tab_state(&mut self.sidebar_yazi_state_by_tab, &current_tab_ids);
     }
 
     pub(crate) fn ensure_action_ready(&self, pipe_message: &PipeMessage) -> Option<usize> {
