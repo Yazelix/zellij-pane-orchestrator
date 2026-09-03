@@ -2,8 +2,9 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use yazelix_zellij_pane_orchestrator::layout_state_contract::{
-    is_base_layout_name, swap_step_plan, swap_step_plan_from_base, AgentState, LayoutFamily,
-    LayoutFamilyDirection, LayoutVariant, SidebarState, SwapLayoutStepPlan, SwapStepDirection,
+    dirty_layout_needs_reapply, is_base_layout_name, swap_step_plan, swap_step_plan_from_base,
+    AgentState, LayoutFamily, LayoutFamilyDirection, LayoutVariant, SidebarState,
+    SwapLayoutStepPlan, SwapStepDirection,
 };
 use yazelix_zellij_pane_orchestrator::sidebar_contract::{
     resolve_sidebar_hide, resolve_sidebar_visibility_toggle, sidebar_post_layout_focus_nudges,
@@ -284,7 +285,8 @@ impl State {
         current_variant: LayoutVariant,
         target_variant: LayoutVariant,
     ) {
-        let plan = if self.active_layout_is_base(active_tab_id) {
+        let active_layout_is_base = self.active_layout_is_base(active_tab_id);
+        let plan = if active_layout_is_base {
             swap_step_plan_from_base(target_variant)
         } else {
             swap_step_plan(current_variant, target_variant)
@@ -295,7 +297,17 @@ impl State {
                 .get(&active_tab_id)
                 .copied()
                 .unwrap_or(false);
-            self.run_swap_step_plan(plan.with_initial_reapply(is_dirty));
+            let user_pane_count = self
+                .tab_pane_caches
+                .user_pane_count_by_tab
+                .get(&active_tab_id)
+                .copied()
+                .unwrap_or(0);
+            self.run_swap_step_plan(plan.with_initial_reapply(dirty_layout_needs_reapply(
+                is_dirty,
+                active_layout_is_base,
+                user_pane_count,
+            )));
         }
     }
 

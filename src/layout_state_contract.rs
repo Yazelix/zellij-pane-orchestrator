@@ -185,6 +185,16 @@ pub fn swap_step_plan_from_base(target: LayoutVariant) -> Option<SwapLayoutStepP
     })
 }
 
+pub fn dirty_layout_needs_reapply(
+    is_dirty: bool,
+    active_layout_is_base: bool,
+    user_pane_count: usize,
+) -> bool {
+    // BASE fits only its original user pane; otherwise Zellij advances while clearing dirtiness.
+    const BASE_LAYOUT_USER_PANE_COUNT: usize = 1;
+    is_dirty && (!active_layout_is_base || user_pane_count == BASE_LAYOUT_USER_PANE_COUNT)
+}
+
 fn layout_order_index(variant: LayoutVariant) -> Option<usize> {
     LAYOUT_ORDER
         .iter()
@@ -319,6 +329,11 @@ mod tests {
                 steps: 2,
             }
         );
+
+        assert!(dirty_layout_needs_reapply(true, true, 1));
+        assert!(dirty_layout_needs_reapply(true, false, 2));
+        assert!(!dirty_layout_needs_reapply(false, true, 1));
+        assert!(!dirty_layout_needs_reapply(true, true, 2));
     }
 
     // Defends: layout-family changes are no-ops after removing the bottom-terminal family.
