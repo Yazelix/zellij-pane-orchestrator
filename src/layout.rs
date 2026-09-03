@@ -92,19 +92,13 @@ impl State {
             has_focus_fallback,
         );
 
-        match plan.action {
-            SidebarVisibilityAction::Open
-                if self.active_layout_is_collapsed_base(active_tab_id) =>
-            {
-                self.run_next_swap_layout_steps(1)
-            }
-            SidebarVisibilityAction::Open => {
-                self.set_sidebar_state(active_tab_id, SidebarState::Open)
-            }
-            SidebarVisibilityAction::Close => {
-                self.set_sidebar_state(active_tab_id, SidebarState::Closed)
-            }
-        }
+        self.set_sidebar_state(
+            active_tab_id,
+            match plan.action {
+                SidebarVisibilityAction::Open => SidebarState::Open,
+                SidebarVisibilityAction::Close => SidebarState::Closed,
+            },
+        );
         self.run_sidebar_post_layout_focus(plan.post_layout_focus);
 
         self.respond(pipe_message, RESULT_OK);
@@ -227,11 +221,6 @@ impl State {
             .is_some_and(|layout| is_base_layout_name(layout.as_deref()))
     }
 
-    fn active_layout_is_collapsed_base(&self, active_tab_id: usize) -> bool {
-        self.active_layout_is_base(active_tab_id)
-            && self.base_layout_sidebar_is_closed(active_tab_id) == Some(true)
-    }
-
     fn can_switch_layout_family(&self, active_tab_id: usize) -> bool {
         let user_pane_count = self
             .tab_pane_caches
@@ -253,11 +242,11 @@ impl State {
         }
     }
 
-    pub(crate) fn run_next_swap_layout_steps(&self, steps: usize) {
+    fn run_next_swap_layout_steps(&self, steps: usize) {
         self.run_swap_layout_steps(SwapStepDirection::Next, steps);
     }
 
-    pub(crate) fn run_previous_swap_layout_steps(&self, steps: usize) {
+    fn run_previous_swap_layout_steps(&self, steps: usize) {
         self.run_swap_layout_steps(SwapStepDirection::Previous, steps);
     }
 
@@ -289,30 +278,25 @@ impl State {
         }
     }
 
-    pub(crate) fn run_to_layout_variant(
-        &self,
-        current_variant: LayoutVariant,
-        target_variant: LayoutVariant,
-    ) {
-        if let Some(plan) = swap_step_plan(current_variant, target_variant) {
-            self.run_swap_step_plan(plan);
-        }
-    }
-
     fn run_to_layout_variant_for_tab(
         &self,
         active_tab_id: usize,
         current_variant: LayoutVariant,
         target_variant: LayoutVariant,
     ) {
-        if self.active_layout_is_base(active_tab_id) {
-            if let Some(plan) = swap_step_plan_from_base(target_variant) {
-                self.run_swap_step_plan(plan);
-            }
-            return;
+        let plan = if self.active_layout_is_base(active_tab_id) {
+            swap_step_plan_from_base(target_variant)
+        } else {
+            swap_step_plan(current_variant, target_variant)
+        };
+        if let Some(plan) = plan {
+            let is_dirty = self
+                .swap_layout_dirty_by_tab
+                .get(&active_tab_id)
+                .copied()
+                .unwrap_or(false);
+            self.run_swap_step_plan(plan.with_initial_reapply(is_dirty));
         }
-
-        self.run_to_layout_variant(current_variant, target_variant);
     }
 
     pub(crate) fn set_agent_state(
@@ -327,11 +311,6 @@ impl State {
     }
 
     fn set_sidebar_state(&self, active_tab_id: usize, sidebar_state: SidebarState) {
-        if self.active_layout_is_base(active_tab_id) && sidebar_state == SidebarState::Closed {
-            self.run_next_swap_layout_steps(1);
-            return;
-        }
-
         if let Some(current_variant) = self.layout_variant_for_tab(active_tab_id) {
             let target_variant = current_variant.with_sidebar_state(sidebar_state);
             self.run_to_layout_variant_for_tab(active_tab_id, current_variant, target_variant);

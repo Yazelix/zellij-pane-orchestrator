@@ -46,6 +46,7 @@ const TAB_LOCAL_PANE_RECONCILE_DELAY: Duration = Duration::from_millis(500);
 struct State {
     tab_identity: TabIdentityState,
     active_swap_layout_name_by_tab: HashMap<usize, Option<String>>,
+    swap_layout_dirty_by_tab: HashMap<usize, bool>,
     last_known_layout_variant_by_tab: RefCell<HashMap<usize, LayoutVariant>>,
     pending_swap_layout_plan: RefCell<Option<SwapLayoutStepPlan>>,
     tab_pane_caches: panes::TabPaneCaches,
@@ -155,6 +156,10 @@ impl ZellijPlugin for State {
                 self.active_tab_floating_panes_visible = tabs
                     .iter()
                     .any(|tab| tab.active && tab.are_floating_panes_visible);
+                self.swap_layout_dirty_by_tab = tabs
+                    .iter()
+                    .map(|tab| (tab.tab_id, tab.is_swap_layout_dirty))
+                    .collect();
                 self.reconcile_workspace_state();
                 self.reconcile_ai_pane_activity_tabs(&tabs);
                 {

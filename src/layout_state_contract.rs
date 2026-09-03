@@ -16,6 +16,15 @@ pub struct SwapLayoutStepPlan {
     pub steps: usize,
 }
 
+impl SwapLayoutStepPlan {
+    pub fn with_initial_reapply(mut self, is_dirty: bool) -> Self {
+        if is_dirty && self.steps > 0 {
+            self.steps += 1;
+        }
+        self
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayoutFamily {
     Single,
@@ -287,6 +296,28 @@ mod tests {
                 direction: SwapStepDirection::Next,
                 steps: 3
             })
+        );
+    }
+
+    // Regression: Zellij consumes one swap command restoring a dirty layout before advancing.
+    #[test]
+    fn dirty_layout_adds_one_initial_reapply_step() {
+        let clean = SwapLayoutStepPlan {
+            direction: SwapStepDirection::Next,
+            steps: 1,
+        };
+
+        assert_eq!(clean.with_initial_reapply(false), clean);
+        assert_eq!(
+            SwapLayoutStepPlan { steps: 0, ..clean }.with_initial_reapply(true),
+            SwapLayoutStepPlan { steps: 0, ..clean }
+        );
+        assert_eq!(
+            clean.with_initial_reapply(true),
+            SwapLayoutStepPlan {
+                direction: SwapStepDirection::Next,
+                steps: 2,
+            }
         );
     }
 
