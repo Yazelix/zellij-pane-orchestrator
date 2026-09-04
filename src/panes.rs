@@ -213,8 +213,9 @@ fn build_user_pane_count_by_tab(
             let tab_id = tab_id_by_position.get(tab_position).copied()?;
             let user_pane_count = panes
                 .iter()
-                .filter(|pane| !pane.is_plugin)
-                .filter(|pane| !pane.exited)
+                .filter(|pane| {
+                    !pane.is_plugin && !pane.exited && !pane.is_floating && !pane.is_suppressed
+                })
                 .count();
             Some((tab_id, user_pane_count))
         })

@@ -2,6 +2,9 @@
 
 Standalone Zellij plugin for tab-local pane orchestration. The plugin originated in Yazelix, but core pane behavior is usable without installing Yazelix.
 
+This revision targets Nova Zellij `796a30c4`, which exposes exact named tiled
+swap-layout selection to plugins. Stock Zellij does not provide that operation.
+
 ## Build
 
 ```bash
@@ -42,9 +45,9 @@ keybinds {
 }
 ```
 
-`toggle_sidebar` drives the configured swap layouts for a terminal or tiled
-plugin pane named `sidebar`. When the base layout starts with that sidebar open,
-put the collapsed swap layout first so the initial close is one native step.
+`toggle_sidebar` applies the matching named tiled swap layout for a terminal or
+tiled plugin pane named `sidebar`. Layout order does not affect selection, and a
+visible floating pane remains visible and focused while the tiled layout changes.
 
 ## Standalone pipe API
 

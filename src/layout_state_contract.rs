@@ -5,27 +5,6 @@ pub enum LayoutFamilyDirection {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SwapStepDirection {
-    Next,
-    Previous,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SwapLayoutStepPlan {
-    pub direction: SwapStepDirection,
-    pub steps: usize,
-}
-
-impl SwapLayoutStepPlan {
-    pub fn with_initial_reapply(mut self, is_dirty: bool) -> Self {
-        if is_dirty && self.steps > 0 {
-            self.steps += 1;
-        }
-        self
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LayoutFamily {
     Single,
 }
@@ -51,12 +30,12 @@ pub struct LayoutVariant {
 }
 
 const LAYOUT_ORDER: &[LayoutVariant] = &[
+    LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Absent),
     LayoutVariant::new(
         LayoutFamily::Single,
         SidebarState::Closed,
         AgentState::Absent,
     ),
-    LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Absent),
     LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Open),
     LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Closed),
     LayoutVariant::new(LayoutFamily::Single, SidebarState::Closed, AgentState::Open),
@@ -150,57 +129,6 @@ impl LayoutFamily {
     }
 }
 
-pub fn swap_step_plan(current: LayoutVariant, target: LayoutVariant) -> Option<SwapLayoutStepPlan> {
-    let current_index = layout_order_index(current)?;
-    let target_index = layout_order_index(target)?;
-    let layout_count = LAYOUT_ORDER.len();
-    let next_steps = if target_index >= current_index {
-        target_index - current_index
-    } else {
-        layout_count - current_index + target_index
-    };
-    let previous_steps = if current_index >= target_index {
-        current_index - target_index
-    } else {
-        current_index + layout_count - target_index
-    };
-
-    if next_steps <= previous_steps {
-        Some(SwapLayoutStepPlan {
-            direction: SwapStepDirection::Next,
-            steps: next_steps,
-        })
-    } else {
-        Some(SwapLayoutStepPlan {
-            direction: SwapStepDirection::Previous,
-            steps: previous_steps,
-        })
-    }
-}
-
-pub fn swap_step_plan_from_base(target: LayoutVariant) -> Option<SwapLayoutStepPlan> {
-    Some(SwapLayoutStepPlan {
-        direction: SwapStepDirection::Next,
-        steps: layout_order_index(target)? + 1,
-    })
-}
-
-pub fn dirty_layout_needs_reapply(
-    is_dirty: bool,
-    active_layout_is_base: bool,
-    user_pane_count: usize,
-) -> bool {
-    // BASE fits only its original user pane; otherwise Zellij advances while clearing dirtiness.
-    const BASE_LAYOUT_USER_PANE_COUNT: usize = 1;
-    is_dirty && (!active_layout_is_base || user_pane_count == BASE_LAYOUT_USER_PANE_COUNT)
-}
-
-fn layout_order_index(variant: LayoutVariant) -> Option<usize> {
-    LAYOUT_ORDER
-        .iter()
-        .position(|candidate| *candidate == variant)
-}
-
 // Test lane: default
 #[cfg(test)]
 mod tests {
@@ -237,103 +165,6 @@ mod tests {
                 AgentState::Open
             ))
         );
-    }
-
-    // Defends: the collapsed-first swap contract makes close previous and open next.
-    #[test]
-    fn no_agent_sidebar_toggle_is_adjacent() {
-        let open = LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Absent);
-        let closed = LayoutVariant::new(
-            LayoutFamily::Single,
-            SidebarState::Closed,
-            AgentState::Absent,
-        );
-
-        assert_eq!(
-            [
-                swap_step_plan(open, closed),
-                swap_step_plan(closed, open),
-                swap_step_plan_from_base(closed),
-                swap_step_plan_from_base(open),
-            ],
-            [
-                Some(SwapLayoutStepPlan {
-                    direction: SwapStepDirection::Previous,
-                    steps: 1,
-                }),
-                Some(SwapLayoutStepPlan {
-                    direction: SwapStepDirection::Next,
-                    steps: 1,
-                }),
-                Some(SwapLayoutStepPlan {
-                    direction: SwapStepDirection::Next,
-                    steps: 1,
-                }),
-                Some(SwapLayoutStepPlan {
-                    direction: SwapStepDirection::Next,
-                    steps: 2,
-                }),
-            ]
-        );
-    }
-
-    // Defends: hiding or showing the right agent sidebar is a one-step swap after the agent exists.
-    #[test]
-    fn agent_visibility_toggle_is_adjacent() {
-        let plan = swap_step_plan(
-            LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Open),
-            LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Closed),
-        )
-        .unwrap();
-
-        assert_eq!(
-            plan,
-            SwapLayoutStepPlan {
-                direction: SwapStepDirection::Next,
-                steps: 1
-            }
-        );
-    }
-
-    // Regression: BASE sits before the first swap layout, so reaching an agent layout needs one extra next-swap step.
-    #[test]
-    fn base_to_agent_layout_counts_from_before_first_swap_layout() {
-        let target = LayoutVariant::new(LayoutFamily::Single, SidebarState::Open, AgentState::Open);
-
-        assert_eq!(
-            swap_step_plan_from_base(target),
-            Some(SwapLayoutStepPlan {
-                direction: SwapStepDirection::Next,
-                steps: 3
-            })
-        );
-    }
-
-    // Regression: Zellij consumes one swap command restoring a dirty layout before advancing.
-    #[test]
-    fn dirty_layout_adds_one_initial_reapply_step() {
-        let clean = SwapLayoutStepPlan {
-            direction: SwapStepDirection::Next,
-            steps: 1,
-        };
-
-        assert_eq!(clean.with_initial_reapply(false), clean);
-        assert_eq!(
-            SwapLayoutStepPlan { steps: 0, ..clean }.with_initial_reapply(true),
-            SwapLayoutStepPlan { steps: 0, ..clean }
-        );
-        assert_eq!(
-            clean.with_initial_reapply(true),
-            SwapLayoutStepPlan {
-                direction: SwapStepDirection::Next,
-                steps: 2,
-            }
-        );
-
-        assert!(dirty_layout_needs_reapply(true, true, 1));
-        assert!(dirty_layout_needs_reapply(true, false, 2));
-        assert!(!dirty_layout_needs_reapply(false, true, 1));
-        assert!(!dirty_layout_needs_reapply(true, true, 2));
     }
 
     // Defends: layout-family changes are no-ops after removing the bottom-terminal family.

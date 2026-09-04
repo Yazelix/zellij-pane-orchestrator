@@ -2,9 +2,8 @@ use std::thread::sleep;
 use std::time::Duration;
 
 use yazelix_zellij_pane_orchestrator::layout_state_contract::{
-    dirty_layout_needs_reapply, is_base_layout_name, swap_step_plan, swap_step_plan_from_base,
-    AgentState, LayoutFamily, LayoutFamilyDirection, LayoutVariant, SidebarState,
-    SwapLayoutStepPlan, SwapStepDirection,
+    is_base_layout_name, AgentState, LayoutFamily, LayoutFamilyDirection, LayoutVariant,
+    SidebarState,
 };
 use yazelix_zellij_pane_orchestrator::sidebar_contract::{
     resolve_sidebar_hide, resolve_sidebar_visibility_toggle, sidebar_post_layout_focus_nudges,
@@ -13,7 +12,7 @@ use yazelix_zellij_pane_orchestrator::sidebar_contract::{
 use zellij_tile::prelude::*;
 
 use crate::panes::ManagedTabPanes;
-use crate::{State, RESULT_MISSING, RESULT_OK, RESULT_UNKNOWN_LAYOUT, SWAP_LAYOUT_STEP_DELAY_MS};
+use crate::{State, RESULT_MISSING, RESULT_OK, RESULT_UNKNOWN_LAYOUT};
 
 const CLOSED_BASE_SIDEBAR_COLUMNS: usize = 2;
 
@@ -43,7 +42,7 @@ impl State {
             return;
         }
 
-        self.run_to_layout_variant_for_tab(active_tab_id, layout_variant, target_variant);
+        self.apply_layout_variant(target_variant);
         if target_variant.agent_state == AgentState::Open {
             self.move_agent_right_after_layout_settle(active_tab_id);
         }
@@ -243,72 +242,8 @@ impl State {
         }
     }
 
-    fn run_next_swap_layout_steps(&self, steps: usize) {
-        self.run_swap_layout_steps(SwapStepDirection::Next, steps);
-    }
-
-    fn run_previous_swap_layout_steps(&self, steps: usize) {
-        self.run_swap_layout_steps(SwapStepDirection::Previous, steps);
-    }
-
-    pub(crate) fn run_pending_swap_layout_step(&self) {
-        let Some(plan) = self.pending_swap_layout_plan.take() else {
-            return;
-        };
-        self.run_swap_layout_steps(plan.direction, plan.steps);
-    }
-
-    fn run_swap_layout_steps(&self, direction: SwapStepDirection, steps: usize) {
-        self.pending_swap_layout_plan.replace(None);
-        if steps == 0 {
-            return;
-        }
-
-        match direction {
-            SwapStepDirection::Next => next_swap_layout(),
-            SwapStepDirection::Previous => previous_swap_layout(),
-        }
-
-        if steps > 1 {
-            self.pending_swap_layout_plan
-                .replace(Some(SwapLayoutStepPlan {
-                    direction,
-                    steps: steps - 1,
-                }));
-            set_timeout(SWAP_LAYOUT_STEP_DELAY_MS as f64 / 1000.0);
-        }
-    }
-
-    fn run_to_layout_variant_for_tab(
-        &self,
-        active_tab_id: usize,
-        current_variant: LayoutVariant,
-        target_variant: LayoutVariant,
-    ) {
-        let active_layout_is_base = self.active_layout_is_base(active_tab_id);
-        let plan = if active_layout_is_base {
-            swap_step_plan_from_base(target_variant)
-        } else {
-            swap_step_plan(current_variant, target_variant)
-        };
-        if let Some(plan) = plan {
-            let is_dirty = self
-                .swap_layout_dirty_by_tab
-                .get(&active_tab_id)
-                .copied()
-                .unwrap_or(false);
-            let user_pane_count = self
-                .tab_pane_caches
-                .user_pane_count_by_tab
-                .get(&active_tab_id)
-                .copied()
-                .unwrap_or(0);
-            self.run_swap_step_plan(plan.with_initial_reapply(dirty_layout_needs_reapply(
-                is_dirty,
-                active_layout_is_base,
-                user_pane_count,
-            )));
-        }
+    fn apply_layout_variant(&self, target_variant: LayoutVariant) {
+        apply_tiled_swap_layout(target_variant.layout_name());
     }
 
     pub(crate) fn set_agent_state(
@@ -318,21 +253,19 @@ impl State {
     ) -> Option<()> {
         let current_variant = self.layout_variant_for_tab(active_tab_id)?;
         let target_variant = current_variant.with_agent_state(agent_state);
-        self.run_to_layout_variant_for_tab(active_tab_id, current_variant, target_variant);
+        if target_variant != current_variant {
+            self.apply_layout_variant(target_variant);
+        }
         Some(())
     }
 
     fn set_sidebar_state(&self, active_tab_id: usize, sidebar_state: SidebarState) {
         if let Some(current_variant) = self.layout_variant_for_tab(active_tab_id) {
             let target_variant = current_variant.with_sidebar_state(sidebar_state);
-            self.run_to_layout_variant_for_tab(active_tab_id, current_variant, target_variant);
-        }
-    }
-
-    fn run_swap_step_plan(&self, plan: SwapLayoutStepPlan) {
-        match plan.direction {
-            SwapStepDirection::Next => self.run_next_swap_layout_steps(plan.steps),
-            SwapStepDirection::Previous => self.run_previous_swap_layout_steps(plan.steps),
+            if target_variant == current_variant {
+                return;
+            }
+            self.apply_layout_variant(target_variant);
         }
     }
 

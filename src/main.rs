@@ -9,7 +9,6 @@ mod screen_saver;
 mod status_bar_cache;
 mod workspace;
 
-use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -17,9 +16,7 @@ use std::time::{Duration, Instant};
 use workspace::{bootstrap_workspace_root, WorkspaceState};
 use yazelix_zellij_pane_orchestrator::active_tab_session_state::SessionAiPaneActivity;
 use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::HorizontalDirection;
-use yazelix_zellij_pane_orchestrator::layout_state_contract::{
-    LayoutFamilyDirection, LayoutVariant, SwapLayoutStepPlan,
-};
+use yazelix_zellij_pane_orchestrator::layout_state_contract::LayoutFamilyDirection;
 use yazelix_zellij_pane_orchestrator::right_sidebar_command_contract::RightSidebarCommandConfig;
 use yazelix_zellij_pane_orchestrator::screen_saver_contract::ScreenSaverConfig;
 use yazelix_zellij_pane_orchestrator::status_bar_cache_contract::StatusBarCacheRuntime;
@@ -39,16 +36,12 @@ pub(crate) const RESULT_UNSUPPORTED_EDITOR: &str = "unsupported_editor";
 pub(crate) const RESULT_STALE_GENERATION: &str = "stale_generation";
 pub(crate) const RESULT_VERSION_MISMATCH: &str = "version_mismatch";
 pub(crate) const COMMAND_STEP_DELAY_MS: u64 = 35;
-pub(crate) const SWAP_LAYOUT_STEP_DELAY_MS: u64 = 35;
 const TAB_LOCAL_PANE_RECONCILE_DELAY: Duration = Duration::from_millis(500);
 
 #[derive(Default)]
 struct State {
     tab_identity: TabIdentityState,
     active_swap_layout_name_by_tab: HashMap<usize, Option<String>>,
-    swap_layout_dirty_by_tab: HashMap<usize, bool>,
-    last_known_layout_variant_by_tab: RefCell<HashMap<usize, LayoutVariant>>,
-    pending_swap_layout_plan: RefCell<Option<SwapLayoutStepPlan>>,
     tab_pane_caches: panes::TabPaneCaches,
     last_pane_manifest: Option<PaneManifest>,
     tab_local_pane_reconcile_next_flush: Option<Instant>,
@@ -156,25 +149,8 @@ impl ZellijPlugin for State {
                 self.active_tab_floating_panes_visible = tabs
                     .iter()
                     .any(|tab| tab.active && tab.are_floating_panes_visible);
-                self.swap_layout_dirty_by_tab = tabs
-                    .iter()
-                    .map(|tab| (tab.tab_id, tab.is_swap_layout_dirty))
-                    .collect();
                 self.reconcile_workspace_state();
                 self.reconcile_ai_pane_activity_tabs(&tabs);
-                {
-                    let mut last_known_layout_variant_by_tab =
-                        self.last_known_layout_variant_by_tab.borrow_mut();
-                    for tab in &tabs {
-                        if let Some(layout_variant) = tab
-                            .active_swap_layout_name
-                            .as_deref()
-                            .and_then(LayoutVariant::from_layout_name)
-                        {
-                            last_known_layout_variant_by_tab.insert(tab.tab_id, layout_variant);
-                        }
-                    }
-                }
                 self.active_swap_layout_name_by_tab = tabs
                     .into_iter()
                     .map(|tab| (tab.tab_id, tab.active_swap_layout_name))
@@ -194,7 +170,6 @@ impl ZellijPlugin for State {
             Event::InputReceived => self.record_screen_saver_input(),
             Event::Timer(_) => {
                 self.timer_armed_for = None;
-                self.run_pending_swap_layout_step();
                 self.record_orchestrator_timer();
                 self.handle_tab_local_pane_reconcile_timer();
                 self.handle_screen_saver_timer();
@@ -400,9 +375,6 @@ impl State {
         if current_tab_ids.is_empty() {
             self.last_pane_manifest = None;
         }
-        self.last_known_layout_variant_by_tab
-            .borrow_mut()
-            .retain(|tab_id, _| current_tab_ids.contains(tab_id));
         self.tab_pane_caches.retain_current_tabs(&current_tab_ids);
     }
 
