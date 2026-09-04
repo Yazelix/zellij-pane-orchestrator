@@ -1,5 +1,4 @@
 mod agent;
-mod ai_pane_activity;
 mod editor;
 mod heartbeat;
 mod layout;
@@ -9,12 +8,11 @@ mod screen_saver;
 mod status_bar_cache;
 mod workspace;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use std::time::{Duration, Instant};
 use workspace::{bootstrap_workspace_root, WorkspaceState};
-use yazelix_zellij_pane_orchestrator::active_tab_session_state::SessionAiPaneActivity;
 use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::HorizontalDirection;
 use yazelix_zellij_pane_orchestrator::layout_state_contract::LayoutFamilyDirection;
 use yazelix_zellij_pane_orchestrator::right_sidebar_command_contract::RightSidebarCommandConfig;
@@ -45,12 +43,8 @@ struct State {
     tab_pane_caches: panes::TabPaneCaches,
     last_pane_manifest: Option<PaneManifest>,
     tab_local_pane_reconcile_next_flush: Option<Instant>,
-    tab_name_by_tab_id: HashMap<usize, String>,
-    tab_fullscreen_active_by_tab: HashMap<usize, bool>,
-    tab_sync_panes_active_by_tab: HashMap<usize, bool>,
     active_tab_floating_panes_visible: bool,
     workspace_state_by_tab: HashMap<usize, WorkspaceState>,
-    ai_pane_activity_by_tab: HashMap<usize, Vec<SessionAiPaneActivity>>,
     initial_workspace_state: Option<WorkspaceState>,
     runtime_dir: PathBuf,
     screen_saver_config: ScreenSaverConfig,
@@ -64,7 +58,6 @@ struct State {
     status_bar_cache_runtime: Option<StatusBarCacheRuntime>,
     status_bar_cache_last_payload: Option<String>,
     workspace_status_pipe_payload_by_plugin: HashMap<u32, String>,
-    tab_activity_pipe_payload: Option<String>,
     orchestrator_heartbeat: heartbeat::OrchestratorHeartbeat,
     timer_armed_for: Option<Instant>,
     runtime_config_generation: String,
@@ -134,23 +127,10 @@ impl ZellijPlugin for State {
         match event {
             Event::TabUpdate(tabs) => {
                 self.tab_identity = TabIdentityState::from_tabs(&tabs);
-                self.tab_name_by_tab_id = tabs
-                    .iter()
-                    .map(|tab| (tab.tab_id, tab.name.clone()))
-                    .collect();
-                self.tab_fullscreen_active_by_tab = tabs
-                    .iter()
-                    .map(|tab| (tab.tab_id, tab.is_fullscreen_active))
-                    .collect();
-                self.tab_sync_panes_active_by_tab = tabs
-                    .iter()
-                    .map(|tab| (tab.tab_id, tab.is_sync_panes_active))
-                    .collect();
                 self.active_tab_floating_panes_visible = tabs
                     .iter()
                     .any(|tab| tab.active && tab.are_floating_panes_visible);
                 self.reconcile_workspace_state();
-                self.reconcile_ai_pane_activity_tabs(&tabs);
                 self.active_swap_layout_name_by_tab = tabs
                     .into_iter()
                     .map(|tab| (tab.tab_id, tab.active_swap_layout_name))
@@ -176,11 +156,9 @@ impl ZellijPlugin for State {
                 self.handle_orchestrator_heartbeat_timer();
             }
             Event::PaneClosed(pane_id) => {
-                self.handle_terminal_title_activity_pane_closed(pane_id);
                 self.handle_screen_saver_pane_closed(pane_id);
             }
             Event::CommandPaneExited(terminal_id, _, _) => {
-                self.handle_terminal_title_activity_command_pane_exited(terminal_id);
                 self.handle_screen_saver_command_exit(terminal_id);
             }
             _ => {}
@@ -233,20 +211,8 @@ impl ZellijPlugin for State {
                 self.hide_sidebar(&pipe_message);
                 false
             }
-            "register_ai_pane_activity" => {
-                self.register_ai_pane_activity(&pipe_message);
-                false
-            }
-            "reconcile_terminal_title_activity_snapshot" => {
-                self.reconcile_terminal_title_activity_snapshot(&pipe_message);
-                false
-            }
             "get_active_tab_session_state" => {
                 self.get_active_tab_session_state(&pipe_message);
-                false
-            }
-            "get_all_tab_activity_state" => {
-                self.get_all_tab_activity_state(&pipe_message);
                 false
             }
             "retarget_workspace" => {
@@ -297,30 +263,14 @@ impl State {
             return;
         }
 
-        let previous_zjstatus_plugin_ids = self
-            .tab_pane_caches
-            .zjstatus_plugin_id_by_tab
-            .values()
-            .copied()
-            .collect::<HashSet<_>>();
         self.tab_pane_caches = panes::TabPaneCaches::rebuild(
             pane_manifest,
             self.tab_identity.tab_id_by_position(),
             &self.tab_pane_caches.focus_context_by_tab,
         );
-        let current_zjstatus_plugin_ids = self
-            .tab_pane_caches
-            .zjstatus_plugin_id_by_tab
-            .values()
-            .copied()
-            .collect::<HashSet<_>>();
-        if current_zjstatus_plugin_ids != previous_zjstatus_plugin_ids {
-            self.tab_activity_pipe_payload = None;
-        }
         self.workspace_status_pipe_payload_by_plugin
             .retain(|plugin_id, _| self.tab_pane_caches.has_zjstatus_plugin_id(*plugin_id));
         self.recover_workspace_state_from_managed_editors();
-        self.reconcile_ai_pane_activity_panes();
     }
 
     fn rebuild_tab_local_pane_state_or_defer(&mut self, pane_manifest: &PaneManifest) {

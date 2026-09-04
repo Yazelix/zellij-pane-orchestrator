@@ -67,7 +67,6 @@ Yazelix integration commands depend on Yazelix-managed editor/sidebar/workspace 
 
 - `open_file`
 - `set_managed_editor_cwd`
-- `register_ai_pane_activity`
 - `retarget_workspace`
 - `toggle_workspace_popup`
 - `reload_runtime_config`
@@ -78,15 +77,11 @@ previous provenance when rolling back a failed multi-step retarget.
 `toggle_workspace_popup` requires a configured `popup_plugin_url`, accepts a
 popup id as its payload, and forwards that id with the active tab's canonical
 workspace root to the loaded popup instance matching that URL.
-`register_ai_pane_activity` records tab-local AI activity facts. Live
-spinner-prefixed terminal titles such as Codex's activity title provide the same
-fact when their pane command matches the optional
-`managed_agent_command_marker`. The fact is removed when the spinner title
-disappears or the pane exits. The plugin reduces all facts by stable tab id and
-broadcasts the complete snapshot through `pipe_tab_activity`; compatible status
-bars consume it and unrelated plugins ignore it. It never writes activity into
-native Zellij tab names. Agent-usage collection and caching belong to the
-consuming status bar, not this pane plugin.
+The plugin does not track agent activity or decorate tab names. The v2 active-tab
+response retains an empty `extensions.ai_pane_activity` list for wire compatibility.
+`managed_agent_command_marker` identifies the agent popup for focus navigation,
+including when its terminal title changes. Agent activity and usage belong to
+the consuming runtime's chosen tools, not this pane plugin.
 
 Editor command-mode integration is Neovim-only. Helix buffer opens and cwd sync are owned by the Yazelix Helix action bridge; direct Helix `open_file`, `set_managed_editor_cwd`, or `retarget_workspace` editor requests are rejected instead of sending `:open` or `:cd` text into the terminal.
 

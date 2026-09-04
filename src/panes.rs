@@ -423,9 +423,6 @@ impl State {
                 .and_then(|tab_id| self.tab_pane_caches.terminal_panes_by_tab.get(&tab_id))
                 .map(Vec::as_slice),
         );
-        let ai_pane_activity = active_tab_id
-            .map(|tab_id| self.get_active_ai_pane_activity_snapshot(tab_id))
-            .unwrap_or_default();
         let focus_context = match active_tab_id
             .and_then(|tab_id| {
                 self.tab_pane_caches
@@ -451,7 +448,7 @@ impl State {
             agent_collapsed: active_tab_id.and_then(|tab_id| self.agent_is_closed(tab_id)),
             focus_context: focus_context.to_string(),
             transient_panes,
-            extensions: SessionStatusExtensions { ai_pane_activity },
+            extensions: SessionStatusExtensions::default(),
         }
     }
 

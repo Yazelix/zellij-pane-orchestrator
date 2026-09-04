@@ -67,35 +67,12 @@ pub enum SessionAiPaneActivityState {
     Stale,
 }
 
-impl SessionAiPaneActivityState {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Unknown => "unknown",
-            Self::Inactive => "inactive",
-            Self::Active => "active",
-            Self::Thinking => "thinking",
-            Self::Stale => "stale",
-        }
-    }
-
-    pub fn from_activity(activity: &str) -> Option<Self> {
-        match activity.trim() {
-            "unknown" => Some(Self::Unknown),
-            "inactive" | "idle" => Some(Self::Inactive),
-            "active" | "streaming" => Some(Self::Active),
-            "thinking" => Some(Self::Thinking),
-            "stale" => Some(Self::Stale),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SessionAiPaneActivity {
     /// Adapter state: tab position this activity fact belongs to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab_position: Option<usize>,
-    /// Adapter state: provider label supplied by a future AI pane activity detector.
+    /// Legacy v2 provider label, retained only for payload compatibility.
     #[serde(default)]
     pub provider: String,
     /// Adapter state: pane identity associated with the activity signal.
@@ -109,26 +86,9 @@ pub struct SessionAiPaneActivity {
     pub state: SessionAiPaneActivityState,
 }
 
-impl SessionAiPaneActivity {
-    pub fn tab_local(
-        tab_position: usize,
-        provider: String,
-        pane_id: String,
-        state: SessionAiPaneActivityState,
-    ) -> Self {
-        Self {
-            tab_position: Some(tab_position),
-            provider,
-            pane_id,
-            activity: state.as_str().to_string(),
-            state,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct SessionStatusExtensions {
-    /// Extension slot for future AI pane indicators. Empty means unknown, not idle.
+    /// Legacy v2 wire field. Nova no longer tracks activity and always emits an empty list.
     #[serde(default)]
     pub ai_pane_activity: Vec<SessionAiPaneActivity>,
 }
@@ -348,14 +308,7 @@ mod tests {
                         is_focused: true,
                     }),
                 },
-                extensions: SessionStatusExtensions {
-                    ai_pane_activity: vec![SessionAiPaneActivity::tab_local(
-                        2,
-                        "codex".into(),
-                        "terminal:4".into(),
-                        SessionAiPaneActivityState::Thinking,
-                    )],
-                },
+                extensions: SessionStatusExtensions::default(),
             },
         );
 
@@ -392,58 +345,12 @@ mod tests {
                     }
                 },
                 "extensions": {
-                    "ai_pane_activity": [
-                        {
-                            "tab_position": 2,
-                            "provider": "codex",
-                            "pane_id": "terminal:4",
-                            "activity": "thinking",
-                            "state": "thinking"
-                        }
-                    ]
+                    "ai_pane_activity": []
                 }
             })
         );
         assert!(!serialized.contains("#["));
         assert!(!serialized.contains("command_cpu"));
         assert!(!serialized.contains("zjstatus"));
-    }
-
-    // Defends: the AI activity extension has an explicit tab-local state taxonomy without provider UI formatting.
-    #[test]
-    fn ai_activity_extension_represents_tab_local_state_taxonomy() {
-        let states = [
-            SessionAiPaneActivityState::Inactive,
-            SessionAiPaneActivityState::Active,
-            SessionAiPaneActivityState::Thinking,
-            SessionAiPaneActivityState::Stale,
-            SessionAiPaneActivityState::Unknown,
-        ];
-
-        let facts = states
-            .iter()
-            .map(|state| {
-                SessionAiPaneActivity::tab_local(4, "codex".into(), "terminal:12".into(), *state)
-            })
-            .collect::<Vec<_>>();
-        let value = serde_json::to_value(SessionStatusExtensions {
-            ai_pane_activity: facts,
-        })
-        .unwrap();
-
-        assert_eq!(
-            value
-                .get("ai_pane_activity")
-                .and_then(|value| value.as_array())
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|item| item.get("state").and_then(|state| state.as_str()))
-                        .collect::<Vec<_>>()
-                })
-                .unwrap(),
-            vec!["inactive", "active", "thinking", "stale", "unknown"]
-        );
-        assert!(!value.to_string().contains("#["));
     }
 }

@@ -1,5 +1,3 @@
-use crate::ai_pane_activity_contract::terminal_command_matches_marker;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HorizontalDirection {
     Left,
@@ -46,6 +44,20 @@ pub fn is_visible_popup_pane(
         && !is_suppressed
         && (pane_title.trim().ends_with("_popup")
             || terminal_command_matches_marker(terminal_command, managed_agent_command_marker))
+}
+
+fn terminal_command_matches_marker(
+    terminal_command: Option<&str>,
+    command_marker: Option<&str>,
+) -> bool {
+    command_marker
+        .map(str::trim)
+        .filter(|marker| !marker.is_empty())
+        .is_some_and(|marker| {
+            terminal_command
+                .map(str::trim)
+                .is_some_and(|command| command.contains(marker))
+        })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

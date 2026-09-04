@@ -1,6 +1,5 @@
 pub mod active_tab_session_state;
 pub mod agent_focus_contract;
-pub mod ai_pane_activity_contract;
 pub mod editor_open_contract;
 pub mod horizontal_focus_contract;
 pub mod layout_state_contract;
@@ -11,9 +10,7 @@ pub mod runtime_config_contract;
 pub mod screen_saver_contract;
 pub mod sidebar_contract;
 pub mod status_bar_cache_contract;
-pub mod status_bar_tab_activity_pipe_contract;
 pub mod status_bar_workspace_pipe_contract;
-pub mod tab_activity_snapshot_contract;
 pub mod tab_identity_contract;
 pub mod timer_schedule_contract;
 pub mod transient_pane_contract;
