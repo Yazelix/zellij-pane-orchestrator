@@ -84,6 +84,8 @@ response retains an empty `extensions.ai_pane_activity` list for wire compatibil
 `managed_agent_command_marker` identifies the agent popup for focus navigation,
 including when its terminal title changes. Agent activity and usage belong to
 the consuming runtime's chosen tools, not this pane plugin.
+`quit_on_last_terminal_close true` exits the session when a terminal pane closes
+and leaves only plugin panes; it is disabled by default.
 
 Editor command-mode integration is Neovim-only. Helix buffer opens and cwd sync are owned by the Yazelix Helix action bridge; direct Helix `open_file`, `set_managed_editor_cwd`, or `retarget_workspace` editor requests are rejected instead of sending `:open` or `:cd` text into the terminal.
 

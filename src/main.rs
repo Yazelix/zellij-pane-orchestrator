@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 use workspace::{bootstrap_workspace_root, WorkspaceState};
 use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::HorizontalDirection;
 use yazelix_zellij_pane_orchestrator::layout_state_contract::LayoutFamilyDirection;
+use yazelix_zellij_pane_orchestrator::pane_contract::SessionExitState;
 use yazelix_zellij_pane_orchestrator::right_sidebar_command_contract::RightSidebarCommandConfig;
 use yazelix_zellij_pane_orchestrator::screen_saver_contract::ScreenSaverConfig;
 use yazelix_zellij_pane_orchestrator::status_bar_cache_contract::StatusBarCacheRuntime;
@@ -63,6 +64,7 @@ struct State {
     timer_armed_for: Option<Instant>,
     runtime_config_generation: String,
     permissions_granted: bool,
+    session_exit: SessionExitState,
 }
 
 register_plugin!(State);
@@ -103,6 +105,11 @@ impl ZellijPlugin for State {
             .get("runtime_config_generation")
             .map(|value| value.trim().to_string())
             .unwrap_or_default();
+        self.session_exit = SessionExitState::new(
+            configuration
+                .get("quit_on_last_terminal_close")
+                .is_some_and(|value| value.trim() == "true"),
+        );
         if self.screen_saver_config.enabled {
             self.screen_saver_last_input = Some(Instant::now());
         }
@@ -142,8 +149,18 @@ impl ZellijPlugin for State {
                 }
             }
             Event::PaneUpdate(pane_manifest) => {
+                let should_quit = self.session_exit.observe_pane_snapshot(
+                    pane_manifest
+                        .panes
+                        .values()
+                        .flatten()
+                        .any(|pane| !pane.is_plugin),
+                );
                 self.last_pane_manifest = Some(pane_manifest.clone());
                 self.rebuild_tab_local_pane_state_or_defer(&pane_manifest);
+                if should_quit && self.permissions_granted {
+                    quit_zellij();
+                }
             }
             Event::PermissionRequestResult(status) => {
                 self.permissions_granted = status == PermissionStatus::Granted;
@@ -157,6 +174,8 @@ impl ZellijPlugin for State {
                 self.handle_orchestrator_heartbeat_timer();
             }
             Event::PaneClosed(pane_id) => {
+                self.session_exit
+                    .record_pane_closed(matches!(pane_id, PaneId::Terminal(_)));
                 self.handle_screen_saver_pane_closed(pane_id);
             }
             Event::CommandPaneExited(terminal_id, _, _) => {

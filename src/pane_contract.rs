@@ -14,6 +14,29 @@ pub enum FocusContextPolicy {
     Other,
 }
 
+#[derive(Default)]
+pub struct SessionExitState {
+    enabled: bool,
+    terminal_close_pending: bool,
+}
+
+impl SessionExitState {
+    pub fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            ..Self::default()
+        }
+    }
+
+    pub fn record_pane_closed(&mut self, is_terminal: bool) {
+        self.terminal_close_pending |= self.enabled && is_terminal;
+    }
+
+    pub fn observe_pane_snapshot(&mut self, has_terminal_pane: bool) -> bool {
+        std::mem::take(&mut self.terminal_close_pending) && !has_terminal_pane
+    }
+}
+
 pub fn select_managed_pane_index(
     panes: &[PaneSnapshot<'_>],
     expected_title: &str,
@@ -57,7 +80,29 @@ pub fn resolve_focus_context(
 mod tests {
     use super::{
         resolve_focus_context, select_managed_pane_index, FocusContextPolicy, PaneSnapshot,
+        SessionExitState,
     };
+
+    #[test]
+    fn quits_only_after_a_terminal_closes_and_the_next_snapshot_has_no_terminal() {
+        let mut state = SessionExitState::default();
+
+        state.record_pane_closed(true);
+        assert!(!state.observe_pane_snapshot(false));
+
+        let mut state = SessionExitState::new(true);
+
+        assert!(!state.observe_pane_snapshot(false));
+        state.record_pane_closed(false);
+        assert!(!state.observe_pane_snapshot(false));
+
+        state.record_pane_closed(true);
+        assert!(!state.observe_pane_snapshot(true));
+        assert!(!state.observe_pane_snapshot(false));
+
+        state.record_pane_closed(true);
+        assert!(state.observe_pane_snapshot(false));
+    }
 
     // Defends: managed-pane lookup keys off the canonical pane titles instead of editor binary names.
     #[test]
