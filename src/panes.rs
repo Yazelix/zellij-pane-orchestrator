@@ -7,7 +7,7 @@ use yazelix_zellij_pane_orchestrator::active_tab_session_state::{
 };
 use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::{
     horizontal_role_for_pane, is_visible_popup_pane, resolve_horizontal_focus, HorizontalDirection,
-    HorizontalFocusPlan, HorizontalPaneSnapshot,
+    HorizontalFocusPlan, HorizontalPaneRole, HorizontalPaneSnapshot,
 };
 use yazelix_zellij_pane_orchestrator::pane_contract::{
     resolve_focus_context, select_managed_pane_index, FocusContextPolicy, PaneSnapshot,
@@ -18,6 +18,9 @@ use yazelix_zellij_pane_orchestrator::tab_identity_contract::{
 };
 use yazelix_zellij_pane_orchestrator::transient_pane_contract::{
     select_transient_pane, transient_pane_identity, TransientPaneKind, TransientPaneSnapshot,
+};
+use yazelix_zellij_pane_orchestrator::vertical_focus_contract::{
+    resolve_vertical_focus, VerticalDirection, VerticalFocusPlan, VerticalPaneSnapshot,
 };
 use zellij_tile::prelude::*;
 
@@ -491,16 +494,7 @@ impl State {
             .get(&active_tab_id)
             .cloned()
             .unwrap_or_default();
-        let visible_popup_is_open = terminal_panes.iter().any(|pane| {
-            is_visible_popup_pane(
-                &pane.title,
-                pane.terminal_command.as_deref(),
-                self.managed_agent_command_marker.as_deref(),
-                pane.is_floating,
-                pane.is_suppressed,
-                self.active_tab_floating_panes_visible,
-            )
-        });
+        let visible_popup_is_open = self.visible_popup_is_open(terminal_panes);
         let managed_sidebar_pane_id = managed_tab_panes.sidebar.map(|managed| managed.pane_id);
         let managed_agent_pane_id = managed_tab_panes.agent.map(|managed| managed.pane_id);
         let pane_snapshots: Vec<HorizontalPaneSnapshot> = terminal_panes
@@ -547,6 +541,81 @@ impl State {
             }
             HorizontalFocusPlan::MissingFocusedPane => self.respond(pipe_message, RESULT_MISSING),
         }
+    }
+
+    pub(crate) fn move_vertical_focus(
+        &self,
+        pipe_message: &PipeMessage,
+        direction: VerticalDirection,
+    ) {
+        let Some(active_tab_id) = self.ensure_action_ready(pipe_message) else {
+            return;
+        };
+        let Some(terminal_panes) = self
+            .tab_pane_caches
+            .terminal_panes_by_tab
+            .get(&active_tab_id)
+        else {
+            self.respond(pipe_message, RESULT_MISSING);
+            return;
+        };
+        let managed_tab_panes = self
+            .tab_pane_caches
+            .managed_panes_by_tab
+            .get(&active_tab_id)
+            .cloned()
+            .unwrap_or_default();
+        let sidebar_pane_id = managed_tab_panes.sidebar.map(|pane| pane.pane_id);
+        let agent_pane_id = managed_tab_panes.agent.map(|pane| pane.pane_id);
+        let panes = terminal_panes
+            .iter()
+            .map(|pane| VerticalPaneSnapshot {
+                is_work_pane: horizontal_role_for_pane(
+                    &pane.pane_id,
+                    &pane.title,
+                    sidebar_pane_id.as_ref(),
+                    agent_pane_id.as_ref(),
+                ) == HorizontalPaneRole::Other
+                    && !pane.is_floating
+                    && !pane.is_suppressed,
+                is_focused: pane.is_focused,
+                pane_x: pane.pane_x,
+                pane_y: pane.pane_y,
+                pane_columns: pane.pane_columns,
+            })
+            .collect::<Vec<_>>();
+        let visible_popup_is_open = self.visible_popup_is_open(terminal_panes);
+        let sidebar_is_focused = self
+            .tab_pane_caches
+            .focus_context_by_tab
+            .get(&active_tab_id)
+            == Some(&FocusContext::Sidebar);
+
+        match resolve_vertical_focus(&panes, direction, sidebar_is_focused, visible_popup_is_open) {
+            VerticalFocusPlan::FocusPane(index) => {
+                if let Some(target_pane) = terminal_panes.get(index) {
+                    focus_pane_with_id(target_pane.pane_id, false, false);
+                    self.respond(pipe_message, RESULT_OK);
+                } else {
+                    self.respond(pipe_message, RESULT_MISSING);
+                }
+            }
+            VerticalFocusPlan::PreserveFocus => self.respond(pipe_message, RESULT_OK),
+            VerticalFocusPlan::MissingFocusedPane => self.respond(pipe_message, RESULT_MISSING),
+        }
+    }
+
+    fn visible_popup_is_open(&self, terminal_panes: &[TerminalPaneLayout]) -> bool {
+        terminal_panes.iter().any(|pane| {
+            is_visible_popup_pane(
+                &pane.title,
+                pane.terminal_command.as_deref(),
+                self.managed_agent_command_marker.as_deref(),
+                pane.is_floating,
+                pane.is_suppressed,
+                self.active_tab_floating_panes_visible,
+            )
+        })
     }
 
     pub(crate) fn maintainer_debug_editor_state(&self, pipe_message: &PipeMessage) {

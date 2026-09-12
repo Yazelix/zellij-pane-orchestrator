@@ -20,6 +20,7 @@ use yazelix_zellij_pane_orchestrator::screen_saver_contract::ScreenSaverConfig;
 use yazelix_zellij_pane_orchestrator::status_bar_cache_contract::StatusBarCacheRuntime;
 use yazelix_zellij_pane_orchestrator::tab_identity_contract::TabIdentityState;
 use yazelix_zellij_pane_orchestrator::timer_schedule_contract::next_timer_delay;
+use yazelix_zellij_pane_orchestrator::vertical_focus_contract::VerticalDirection;
 use zellij_tile::prelude::*;
 
 pub(crate) const RESULT_OK: &str = "ok";
@@ -181,6 +182,14 @@ impl ZellijPlugin for State {
             }
             "move_focus_right_or_tab" => {
                 self.move_horizontal_focus_or_tab(&pipe_message, HorizontalDirection::Right);
+                false
+            }
+            "move_focus_down" => {
+                self.move_vertical_focus(&pipe_message, VerticalDirection::Down);
+                false
+            }
+            "move_focus_up" => {
+                self.move_vertical_focus(&pipe_message, VerticalDirection::Up);
                 false
             }
             "open_file" => {

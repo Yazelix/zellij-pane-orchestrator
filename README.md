@@ -55,6 +55,8 @@ These commands are intended to work without Yazelix runtime paths:
 
 - `move_focus_left_or_tab`
 - `move_focus_right_or_tab`
+- `move_focus_down`
+- `move_focus_up`
 - `next_family`
 - `previous_family`
 - `toggle_sidebar`
