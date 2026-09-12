@@ -14,6 +14,15 @@ pub enum FocusContextPolicy {
     Other,
 }
 
+pub fn startup_picker_tab_id<'a>(
+    panes: impl IntoIterator<Item = (usize, u32, &'a str)>,
+    pane_id: u32,
+) -> Option<usize> {
+    panes.into_iter().find_map(|(tab_id, id, title)| {
+        (id == pane_id && title.trim() == "yazi_picker").then_some(tab_id)
+    })
+}
+
 #[derive(Default)]
 pub struct SessionExitState {
     enabled: bool,
@@ -79,8 +88,8 @@ pub fn resolve_focus_context(
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_focus_context, select_managed_pane_index, FocusContextPolicy, PaneSnapshot,
-        SessionExitState,
+        resolve_focus_context, select_managed_pane_index, startup_picker_tab_id,
+        FocusContextPolicy, PaneSnapshot, SessionExitState,
     };
 
     #[test]
@@ -102,6 +111,19 @@ mod tests {
 
         state.record_pane_closed(true);
         assert!(state.observe_pane_snapshot(false));
+    }
+
+    #[test]
+    fn startup_picker_cleanup_targets_its_stable_tab_only() {
+        let panes = [
+            (41, 7, "editor"),
+            (52, 8, "yazi_picker"),
+            (63, 9, "sidebar"),
+        ];
+
+        assert_eq!(startup_picker_tab_id(panes, 8), Some(52));
+        assert_eq!(startup_picker_tab_id(panes, 7), None);
+        assert_eq!(startup_picker_tab_id(panes, 99), None);
     }
 
     // Defends: managed-pane lookup keys off the canonical pane titles instead of editor binary names.

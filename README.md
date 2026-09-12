@@ -70,12 +70,18 @@ Yazelix integration commands depend on Yazelix-managed editor/sidebar/workspace 
 - `open_file`
 - `set_managed_editor_cwd`
 - `retarget_workspace`
+- `close_startup_picker_tab`
+- `complete_startup_picker_handoff`
 - `toggle_workspace_popup`
 - `reload_runtime_config`
 
 `retarget_workspace` accepts an optional `workspace_source` of `explicit` or
 `bootstrap`; callers normally omit it, while coordinators can preserve the
 previous provenance when rolling back a failed multi-step retarget.
+`close_startup_picker_tab` accepts the terminal pane id from `ZELLIJ_PANE_ID`
+and closes its stable tab only while that named picker has no same-tab editor.
+`complete_startup_picker_handoff` closes that picker pane only after an editor
+is visible in the same stable tab.
 `toggle_workspace_popup` requires a configured `popup_plugin_url`, accepts a
 popup id as its payload, and forwards that id with the active tab's canonical
 workspace root to the loaded popup instance matching that URL.

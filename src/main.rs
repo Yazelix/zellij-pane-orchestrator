@@ -243,6 +243,14 @@ impl ZellijPlugin for State {
                 self.get_active_tab_session_state(&pipe_message);
                 false
             }
+            "close_startup_picker_tab" => {
+                self.close_startup_picker_tab(&pipe_message);
+                false
+            }
+            "complete_startup_picker_handoff" => {
+                self.complete_startup_picker_handoff(&pipe_message);
+                false
+            }
             "retarget_workspace" => {
                 self.retarget_workspace(&pipe_message);
                 false

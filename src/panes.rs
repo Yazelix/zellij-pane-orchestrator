@@ -10,7 +10,8 @@ use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::{
     HorizontalFocusPlan, HorizontalPaneRole, HorizontalPaneSnapshot,
 };
 use yazelix_zellij_pane_orchestrator::pane_contract::{
-    resolve_focus_context, select_managed_pane_index, FocusContextPolicy, PaneSnapshot,
+    resolve_focus_context, select_managed_pane_index, startup_picker_tab_id, FocusContextPolicy,
+    PaneSnapshot,
 };
 use yazelix_zellij_pane_orchestrator::sidebar_contract::is_managed_sidebar_plugin;
 use yazelix_zellij_pane_orchestrator::tab_identity_contract::{
@@ -25,7 +26,7 @@ use yazelix_zellij_pane_orchestrator::vertical_focus_contract::{
 use zellij_tile::prelude::*;
 
 use crate::workspace::WorkspaceStateSource;
-use crate::{State, RESULT_INVALID_PAYLOAD, RESULT_MISSING, RESULT_OK};
+use crate::{State, RESULT_DENIED, RESULT_INVALID_PAYLOAD, RESULT_MISSING, RESULT_OK};
 
 pub(crate) const EDITOR_TITLE: &str = "editor";
 pub(crate) const SIDEBAR_TITLE: &str = "sidebar";
@@ -366,6 +367,74 @@ fn is_zjstatus_plugin_url(plugin_url: &str) -> bool {
 }
 
 impl State {
+    fn resolve_startup_picker(
+        &self,
+        pipe_message: &PipeMessage,
+    ) -> std::result::Result<(u32, usize), &'static str> {
+        if !self.permissions_granted {
+            return Err(RESULT_DENIED);
+        }
+        let Some(pane_id) = pipe_message
+            .payload
+            .as_deref()
+            .and_then(|payload| payload.trim().parse::<u32>().ok())
+        else {
+            return Err(RESULT_INVALID_PAYLOAD);
+        };
+        let panes =
+            self.tab_pane_caches
+                .terminal_panes_by_tab
+                .iter()
+                .flat_map(|(tab_id, panes)| {
+                    panes.iter().filter_map(move |pane| match pane.pane_id {
+                        PaneId::Terminal(id) => Some((*tab_id, id, pane.title.as_str())),
+                        PaneId::Plugin(_) => None,
+                    })
+                });
+        let Some(tab_id) = startup_picker_tab_id(panes, pane_id) else {
+            return Err(RESULT_MISSING);
+        };
+        Ok((pane_id, tab_id))
+    }
+
+    pub(crate) fn close_startup_picker_tab(&self, pipe_message: &PipeMessage) {
+        let (_, tab_id) = match self.resolve_startup_picker(pipe_message) {
+            Ok(resolved) => resolved,
+            Err(response) => {
+                self.respond(pipe_message, response);
+                return;
+            }
+        };
+        self.respond(pipe_message, RESULT_OK);
+        if !self.startup_picker_has_editor(tab_id) {
+            close_tab_with_id(tab_id as u64);
+        }
+    }
+
+    pub(crate) fn complete_startup_picker_handoff(&self, pipe_message: &PipeMessage) {
+        let (pane_id, tab_id) = match self.resolve_startup_picker(pipe_message) {
+            Ok(resolved) => resolved,
+            Err(response) => {
+                self.respond(pipe_message, response);
+                return;
+            }
+        };
+        if !self.startup_picker_has_editor(tab_id) {
+            self.respond(pipe_message, RESULT_MISSING);
+            return;
+        }
+
+        self.respond(pipe_message, RESULT_OK);
+        close_pane_with_id(PaneId::Terminal(pane_id));
+    }
+
+    fn startup_picker_has_editor(&self, tab_id: usize) -> bool {
+        self.tab_pane_caches
+            .managed_panes_by_tab
+            .get(&tab_id)
+            .is_some_and(|panes| panes.editor.is_some())
+    }
+
     fn collect_active_tab_read_state(&self, active_tab_id: Option<usize>) -> ActiveTabReadState {
         let active_swap_layout_name = active_tab_id
             .and_then(|tab_id| self.active_swap_layout_name_by_tab.get(&tab_id))
