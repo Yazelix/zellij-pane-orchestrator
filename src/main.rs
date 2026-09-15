@@ -211,6 +211,14 @@ impl ZellijPlugin for State {
                 self.move_vertical_focus(&pipe_message, VerticalDirection::Up);
                 false
             }
+            "move_pane_down" => {
+                self.move_vertical_pane(&pipe_message, VerticalDirection::Down);
+                false
+            }
+            "move_pane_up" => {
+                self.move_vertical_pane(&pipe_message, VerticalDirection::Up);
+                false
+            }
             "open_file" => {
                 self.open_file_in_managed_editor(&pipe_message);
                 false

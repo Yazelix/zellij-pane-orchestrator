@@ -12,12 +12,46 @@ pub enum VerticalFocusPlan {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VerticalMovePlan {
+    MovePane {
+        pane_index: usize,
+        direction: VerticalDirection,
+        repetitions: usize,
+    },
+    PreservePanes,
+    MissingFocusedPane,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct VerticalPaneSnapshot {
     pub is_work_pane: bool,
     pub is_focused: bool,
     pub pane_x: usize,
     pub pane_y: usize,
     pub pane_columns: usize,
+}
+
+fn work_pane_cycle(
+    panes: &[VerticalPaneSnapshot],
+    focused: Option<&VerticalPaneSnapshot>,
+) -> Vec<(usize, usize)> {
+    let mut cycle = panes
+        .iter()
+        .enumerate()
+        .filter(|(_, pane)| pane.is_work_pane)
+        .filter(|(_, pane)| {
+            focused.is_none_or(|current| {
+                current.pane_x.max(pane.pane_x)
+                    < current
+                        .pane_x
+                        .saturating_add(current.pane_columns)
+                        .min(pane.pane_x.saturating_add(pane.pane_columns))
+            })
+        })
+        .map(|(index, pane)| (index, pane.pane_y))
+        .collect::<Vec<_>>();
+    cycle.sort_by_key(|(_, pane_y)| *pane_y);
+    cycle
 }
 
 pub fn resolve_vertical_focus(
@@ -38,22 +72,7 @@ pub fn resolve_vertical_focus(
         return VerticalFocusPlan::MissingFocusedPane;
     }
 
-    let mut cycle = panes
-        .iter()
-        .enumerate()
-        .filter(|(_, pane)| pane.is_work_pane)
-        .filter(|(_, pane)| {
-            focused.is_none_or(|(_, current)| {
-                current.pane_x.max(pane.pane_x)
-                    < current
-                        .pane_x
-                        .saturating_add(current.pane_columns)
-                        .min(pane.pane_x.saturating_add(pane.pane_columns))
-            })
-        })
-        .map(|(index, pane)| (index, pane.pane_y))
-        .collect::<Vec<_>>();
-    cycle.sort_by_key(|(_, pane_y)| *pane_y);
+    let cycle = work_pane_cycle(panes, focused.map(|(_, pane)| pane));
     let Some(target) = focused
         .and_then(|(focused_index, _)| cycle.iter().position(|(index, _)| *index == focused_index))
         .map(|position| match direction {
@@ -71,10 +90,49 @@ pub fn resolve_vertical_focus(
     VerticalFocusPlan::FocusPane(cycle[target].0)
 }
 
+pub fn resolve_vertical_move(
+    panes: &[VerticalPaneSnapshot],
+    direction: VerticalDirection,
+    visible_popup_is_open: bool,
+) -> VerticalMovePlan {
+    if visible_popup_is_open {
+        return VerticalMovePlan::PreservePanes;
+    }
+
+    let Some((focused_index, focused)) = panes
+        .iter()
+        .enumerate()
+        .find(|(_, pane)| pane.is_work_pane && pane.is_focused)
+    else {
+        return VerticalMovePlan::MissingFocusedPane;
+    };
+    let cycle = work_pane_cycle(panes, Some(focused));
+    if cycle.len() < 2 {
+        return VerticalMovePlan::PreservePanes;
+    }
+    let Some(position) = cycle.iter().position(|(index, _)| *index == focused_index) else {
+        return VerticalMovePlan::MissingFocusedPane;
+    };
+    let (direction, repetitions) = match direction {
+        VerticalDirection::Up if position == 0 => (VerticalDirection::Down, cycle.len() - 1),
+        VerticalDirection::Down if position + 1 == cycle.len() => {
+            (VerticalDirection::Up, cycle.len() - 1)
+        }
+        direction => (direction, 1),
+    };
+
+    VerticalMovePlan::MovePane {
+        pane_index: focused_index,
+        direction,
+        repetitions,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_vertical_focus, VerticalDirection, VerticalFocusPlan, VerticalPaneSnapshot,
+        resolve_vertical_focus, resolve_vertical_move, VerticalDirection, VerticalFocusPlan,
+        VerticalMovePlan, VerticalPaneSnapshot,
     };
     fn pane(
         is_work_pane: bool,
@@ -139,6 +197,53 @@ mod tests {
         assert_eq!(
             resolve_vertical_focus(&top_focused, VerticalDirection::Down, false, true),
             VerticalFocusPlan::PreserveFocus
+        );
+    }
+
+    #[test]
+    fn moves_work_panes_circularly_without_crossing_ui_panes() {
+        let top_focused = [
+            pane(false, false, 0, 0, 24),
+            pane(true, true, 24, 1, 80),
+            pane(true, false, 24, 18, 80),
+            pane(true, false, 24, 19, 80),
+            pane(false, false, 0, 20, 120),
+        ];
+        assert_eq!(
+            resolve_vertical_move(&top_focused, VerticalDirection::Up, false),
+            VerticalMovePlan::MovePane {
+                pane_index: 1,
+                direction: VerticalDirection::Down,
+                repetitions: 2,
+            }
+        );
+
+        let bottom_focused = [
+            pane(false, false, 0, 0, 24),
+            pane(true, false, 24, 1, 80),
+            pane(true, false, 24, 2, 80),
+            pane(true, true, 24, 19, 80),
+            pane(false, false, 0, 20, 120),
+        ];
+        assert_eq!(
+            resolve_vertical_move(&bottom_focused, VerticalDirection::Down, false),
+            VerticalMovePlan::MovePane {
+                pane_index: 3,
+                direction: VerticalDirection::Up,
+                repetitions: 2,
+            }
+        );
+        assert_eq!(
+            resolve_vertical_move(&bottom_focused, VerticalDirection::Up, false),
+            VerticalMovePlan::MovePane {
+                pane_index: 3,
+                direction: VerticalDirection::Up,
+                repetitions: 1,
+            }
+        );
+        assert_eq!(
+            resolve_vertical_move(&bottom_focused, VerticalDirection::Up, true),
+            VerticalMovePlan::PreservePanes
         );
     }
 }

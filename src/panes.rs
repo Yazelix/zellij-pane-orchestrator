@@ -21,7 +21,8 @@ use yazelix_zellij_pane_orchestrator::transient_pane_contract::{
     select_transient_pane, transient_pane_identity, TransientPaneKind, TransientPaneSnapshot,
 };
 use yazelix_zellij_pane_orchestrator::vertical_focus_contract::{
-    resolve_vertical_focus, VerticalDirection, VerticalFocusPlan, VerticalPaneSnapshot,
+    resolve_vertical_focus, resolve_vertical_move, VerticalDirection, VerticalFocusPlan,
+    VerticalMovePlan, VerticalPaneSnapshot,
 };
 use zellij_tile::prelude::*;
 
@@ -628,31 +629,7 @@ impl State {
             self.respond(pipe_message, RESULT_MISSING);
             return;
         };
-        let managed_tab_panes = self
-            .tab_pane_caches
-            .managed_panes_by_tab
-            .get(&active_tab_id)
-            .cloned()
-            .unwrap_or_default();
-        let sidebar_pane_id = managed_tab_panes.sidebar.map(|pane| pane.pane_id);
-        let agent_pane_id = managed_tab_panes.agent.map(|pane| pane.pane_id);
-        let panes = terminal_panes
-            .iter()
-            .map(|pane| VerticalPaneSnapshot {
-                is_work_pane: horizontal_role_for_pane(
-                    &pane.pane_id,
-                    &pane.title,
-                    sidebar_pane_id.as_ref(),
-                    agent_pane_id.as_ref(),
-                ) == HorizontalPaneRole::Other
-                    && !pane.is_floating
-                    && !pane.is_suppressed,
-                is_focused: pane.is_focused,
-                pane_x: pane.pane_x,
-                pane_y: pane.pane_y,
-                pane_columns: pane.pane_columns,
-            })
-            .collect::<Vec<_>>();
+        let panes = self.vertical_pane_snapshots(active_tab_id, terminal_panes);
         let visible_popup_is_open = self.visible_popup_is_open(terminal_panes);
         let sidebar_is_focused = self
             .tab_pane_caches
@@ -672,6 +649,84 @@ impl State {
             VerticalFocusPlan::PreserveFocus => self.respond(pipe_message, RESULT_OK),
             VerticalFocusPlan::MissingFocusedPane => self.respond(pipe_message, RESULT_MISSING),
         }
+    }
+
+    pub(crate) fn move_vertical_pane(
+        &self,
+        pipe_message: &PipeMessage,
+        direction: VerticalDirection,
+    ) {
+        let Some(active_tab_id) = self.ensure_action_ready(pipe_message) else {
+            return;
+        };
+        let Some(terminal_panes) = self
+            .tab_pane_caches
+            .terminal_panes_by_tab
+            .get(&active_tab_id)
+        else {
+            self.respond(pipe_message, RESULT_MISSING);
+            return;
+        };
+        let panes = self.vertical_pane_snapshots(active_tab_id, terminal_panes);
+
+        match resolve_vertical_move(
+            &panes,
+            direction,
+            self.visible_popup_is_open(terminal_panes),
+        ) {
+            VerticalMovePlan::MovePane {
+                pane_index,
+                direction,
+                repetitions,
+            } => {
+                let Some(target_pane) = terminal_panes.get(pane_index) else {
+                    self.respond(pipe_message, RESULT_MISSING);
+                    return;
+                };
+                let direction = match direction {
+                    VerticalDirection::Up => Direction::Up,
+                    VerticalDirection::Down => Direction::Down,
+                };
+                for _ in 0..repetitions {
+                    move_pane_with_pane_id_in_direction(target_pane.pane_id, direction);
+                }
+                self.respond(pipe_message, RESULT_OK);
+            }
+            VerticalMovePlan::PreservePanes => self.respond(pipe_message, RESULT_OK),
+            VerticalMovePlan::MissingFocusedPane => self.respond(pipe_message, RESULT_MISSING),
+        }
+    }
+
+    fn vertical_pane_snapshots(
+        &self,
+        active_tab_id: usize,
+        terminal_panes: &[TerminalPaneLayout],
+    ) -> Vec<VerticalPaneSnapshot> {
+        let managed_tab_panes = self
+            .tab_pane_caches
+            .managed_panes_by_tab
+            .get(&active_tab_id)
+            .cloned()
+            .unwrap_or_default();
+        let sidebar_pane_id = managed_tab_panes.sidebar.map(|pane| pane.pane_id);
+        let agent_pane_id = managed_tab_panes.agent.map(|pane| pane.pane_id);
+        terminal_panes
+            .iter()
+            .map(|pane| VerticalPaneSnapshot {
+                is_work_pane: horizontal_role_for_pane(
+                    &pane.pane_id,
+                    &pane.title,
+                    sidebar_pane_id.as_ref(),
+                    agent_pane_id.as_ref(),
+                ) == HorizontalPaneRole::Other
+                    && !pane.is_floating
+                    && !pane.is_suppressed,
+                is_focused: pane.is_focused,
+                pane_x: pane.pane_x,
+                pane_y: pane.pane_y,
+                pane_columns: pane.pane_columns,
+            })
+            .collect()
     }
 
     fn visible_popup_is_open(&self, terminal_panes: &[TerminalPaneLayout]) -> bool {
