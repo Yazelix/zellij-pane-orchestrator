@@ -11,12 +11,13 @@ pub enum VerticalFocusPlan {
     MissingFocusedPane,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum VerticalMovePlan {
     MovePane {
         pane_index: usize,
         direction: VerticalDirection,
         repetitions: usize,
+        expected_pane_order: Vec<usize>,
     },
     PreservePanes,
     MissingFocusedPane,
@@ -52,6 +53,16 @@ fn work_pane_cycle(
         .collect::<Vec<_>>();
     cycle.sort_by_key(|(_, pane_y)| *pane_y);
     cycle
+}
+
+pub fn vertical_work_pane_order(
+    panes: &[VerticalPaneSnapshot],
+    focused_index: usize,
+) -> Vec<usize> {
+    work_pane_cycle(panes, panes.get(focused_index))
+        .into_iter()
+        .map(|(index, _)| index)
+        .collect()
 }
 
 pub fn resolve_vertical_focus(
@@ -113,18 +124,26 @@ pub fn resolve_vertical_move(
     let Some(position) = cycle.iter().position(|(index, _)| *index == focused_index) else {
         return VerticalMovePlan::MissingFocusedPane;
     };
-    let (direction, repetitions) = match direction {
+    let target_position = match direction {
+        VerticalDirection::Up => (position + cycle.len() - 1) % cycle.len(),
+        VerticalDirection::Down => (position + 1) % cycle.len(),
+    };
+    let (native_direction, repetitions) = match direction {
         VerticalDirection::Up if position == 0 => (VerticalDirection::Down, cycle.len() - 1),
         VerticalDirection::Down if position + 1 == cycle.len() => {
             (VerticalDirection::Up, cycle.len() - 1)
         }
         direction => (direction, 1),
     };
+    let mut expected_pane_order = cycle.iter().map(|(index, _)| *index).collect::<Vec<_>>();
+    let focused_index = expected_pane_order.remove(position);
+    expected_pane_order.insert(target_position, focused_index);
 
     VerticalMovePlan::MovePane {
         pane_index: focused_index,
-        direction,
+        direction: native_direction,
         repetitions,
+        expected_pane_order,
     }
 }
 
@@ -215,6 +234,7 @@ mod tests {
                 pane_index: 1,
                 direction: VerticalDirection::Down,
                 repetitions: 2,
+                expected_pane_order: vec![2, 3, 1],
             }
         );
 
@@ -231,6 +251,7 @@ mod tests {
                 pane_index: 3,
                 direction: VerticalDirection::Up,
                 repetitions: 2,
+                expected_pane_order: vec![3, 1, 2],
             }
         );
         assert_eq!(
@@ -239,6 +260,7 @@ mod tests {
                 pane_index: 3,
                 direction: VerticalDirection::Up,
                 repetitions: 1,
+                expected_pane_order: vec![1, 3, 2],
             }
         );
         assert_eq!(

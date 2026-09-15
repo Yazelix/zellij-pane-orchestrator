@@ -21,8 +21,8 @@ use yazelix_zellij_pane_orchestrator::transient_pane_contract::{
     select_transient_pane, transient_pane_identity, TransientPaneKind, TransientPaneSnapshot,
 };
 use yazelix_zellij_pane_orchestrator::vertical_focus_contract::{
-    resolve_vertical_focus, resolve_vertical_move, VerticalDirection, VerticalFocusPlan,
-    VerticalMovePlan, VerticalPaneSnapshot,
+    resolve_vertical_focus, resolve_vertical_move, vertical_work_pane_order, VerticalDirection,
+    VerticalFocusPlan, VerticalMovePlan, VerticalPaneSnapshot,
 };
 use zellij_tile::prelude::*;
 
@@ -51,6 +51,13 @@ pub(crate) struct TerminalPaneLayout {
     pub(crate) pane_y: usize,
     pub(crate) pane_columns: usize,
     pub(crate) pane_rows: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PendingVerticalPaneMove {
+    tab_id: usize,
+    pane_id: PaneId,
+    expected_pane_order: Vec<PaneId>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -652,20 +659,42 @@ impl State {
     }
 
     pub(crate) fn move_vertical_pane(
-        &self,
+        &mut self,
         pipe_message: &PipeMessage,
         direction: VerticalDirection,
     ) {
         let Some(active_tab_id) = self.ensure_action_ready(pipe_message) else {
             return;
         };
+        if self.pending_vertical_pane_move.is_some() {
+            if self
+                .pending_vertical_pane_move
+                .as_ref()
+                .is_some_and(|pending| pending.tab_id == active_tab_id)
+            {
+                self.queued_vertical_pane_moves.push_back(direction);
+                self.respond(pipe_message, RESULT_OK);
+                return;
+            }
+            self.pending_vertical_pane_move = None;
+            self.queued_vertical_pane_moves.clear();
+        }
+
+        let result = self.start_vertical_pane_move(active_tab_id, direction);
+        self.respond(pipe_message, result);
+    }
+
+    fn start_vertical_pane_move(
+        &mut self,
+        active_tab_id: usize,
+        direction: VerticalDirection,
+    ) -> &'static str {
         let Some(terminal_panes) = self
             .tab_pane_caches
             .terminal_panes_by_tab
             .get(&active_tab_id)
         else {
-            self.respond(pipe_message, RESULT_MISSING);
-            return;
+            return RESULT_MISSING;
         };
         let panes = self.vertical_pane_snapshots(active_tab_id, terminal_panes);
 
@@ -678,22 +707,83 @@ impl State {
                 pane_index,
                 direction,
                 repetitions,
+                expected_pane_order,
             } => {
                 let Some(target_pane) = terminal_panes.get(pane_index) else {
-                    self.respond(pipe_message, RESULT_MISSING);
-                    return;
+                    return RESULT_MISSING;
                 };
-                let direction = match direction {
+                let Some(expected_pane_order) = expected_pane_order
+                    .iter()
+                    .map(|index| terminal_panes.get(*index).map(|pane| pane.pane_id))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return RESULT_MISSING;
+                };
+                let pane_id = target_pane.pane_id;
+                self.pending_vertical_pane_move = Some(PendingVerticalPaneMove {
+                    tab_id: active_tab_id,
+                    pane_id,
+                    expected_pane_order,
+                });
+                let native_direction = match direction {
                     VerticalDirection::Up => Direction::Up,
                     VerticalDirection::Down => Direction::Down,
                 };
                 for _ in 0..repetitions {
-                    move_pane_with_pane_id_in_direction(target_pane.pane_id, direction);
+                    move_pane_with_pane_id_in_direction(pane_id, native_direction);
                 }
-                self.respond(pipe_message, RESULT_OK);
+                RESULT_OK
             }
-            VerticalMovePlan::PreservePanes => self.respond(pipe_message, RESULT_OK),
-            VerticalMovePlan::MissingFocusedPane => self.respond(pipe_message, RESULT_MISSING),
+            VerticalMovePlan::PreservePanes => RESULT_OK,
+            VerticalMovePlan::MissingFocusedPane => RESULT_MISSING,
+        }
+    }
+
+    pub(crate) fn reconcile_vertical_pane_move(&mut self) {
+        let Some(pending) = self.pending_vertical_pane_move.clone() else {
+            return;
+        };
+        let Some(terminal_panes) = self
+            .tab_pane_caches
+            .terminal_panes_by_tab
+            .get(&pending.tab_id)
+        else {
+            self.pending_vertical_pane_move = None;
+            self.queued_vertical_pane_moves.clear();
+            return;
+        };
+        let Some(pane_index) = terminal_panes
+            .iter()
+            .position(|pane| pane.pane_id == pending.pane_id)
+        else {
+            self.pending_vertical_pane_move = None;
+            self.queued_vertical_pane_moves.clear();
+            return;
+        };
+        let panes = self.vertical_pane_snapshots(pending.tab_id, terminal_panes);
+        let current_pane_order = vertical_work_pane_order(&panes, pane_index)
+            .into_iter()
+            .filter_map(|index| terminal_panes.get(index).map(|pane| pane.pane_id))
+            .collect::<Vec<_>>();
+        let same_panes = current_pane_order.len() == pending.expected_pane_order.len()
+            && current_pane_order
+                .iter()
+                .all(|pane_id| pending.expected_pane_order.contains(pane_id));
+        if !same_panes {
+            self.pending_vertical_pane_move = None;
+            self.queued_vertical_pane_moves.clear();
+            return;
+        }
+        if current_pane_order != pending.expected_pane_order {
+            return;
+        }
+
+        self.pending_vertical_pane_move = None;
+        while let Some(direction) = self.queued_vertical_pane_moves.pop_front() {
+            let _ = self.start_vertical_pane_move(pending.tab_id, direction);
+            if self.pending_vertical_pane_move.is_some() {
+                break;
+            }
         }
     }
 

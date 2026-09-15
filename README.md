@@ -67,6 +67,9 @@ These commands are intended to work without Yazelix runtime paths:
 - `open_terminal_in_cwd`
 - `open_workspace_terminal`
 
+Vertical pane moves are circular within the focused work-pane column. Requests
+received before Zellij reports the prior move's pane order are applied in order.
+
 Yazelix integration commands depend on Yazelix-managed editor/sidebar/workspace conventions:
 
 - `open_file`

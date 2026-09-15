@@ -8,7 +8,7 @@ mod screen_saver;
 mod status_bar_cache;
 mod workspace;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;
 
 use std::time::{Duration, Instant};
@@ -43,6 +43,8 @@ struct State {
     tab_identity: TabIdentityState,
     active_swap_layout_name_by_tab: HashMap<usize, Option<String>>,
     tab_pane_caches: panes::TabPaneCaches,
+    pending_vertical_pane_move: Option<panes::PendingVerticalPaneMove>,
+    queued_vertical_pane_moves: VecDeque<VerticalDirection>,
     last_pane_manifest: Option<PaneManifest>,
     tab_local_pane_reconcile_next_flush: Option<Instant>,
     active_tab_floating_panes_visible: bool,
@@ -315,6 +317,7 @@ impl State {
         self.workspace_status_pipe_payload_by_plugin
             .retain(|plugin_id, _| self.tab_pane_caches.has_zjstatus_plugin_id(*plugin_id));
         self.recover_workspace_state_from_managed_editors();
+        self.reconcile_vertical_pane_move();
     }
 
     fn rebuild_tab_local_pane_state_or_defer(&mut self, pane_manifest: &PaneManifest) {
