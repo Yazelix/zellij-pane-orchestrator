@@ -65,6 +65,28 @@ pub fn vertical_work_pane_order(
         .collect()
 }
 
+pub fn resolve_vertical_move_step(
+    position: usize,
+    pane_count: usize,
+    direction: VerticalDirection,
+) -> Option<(usize, VerticalDirection, usize)> {
+    if pane_count < 2 || position >= pane_count {
+        return None;
+    }
+    let target_position = match direction {
+        VerticalDirection::Up => (position + pane_count - 1) % pane_count,
+        VerticalDirection::Down => (position + 1) % pane_count,
+    };
+    let (native_direction, repetitions) = match direction {
+        VerticalDirection::Up if position == 0 => (VerticalDirection::Down, pane_count - 1),
+        VerticalDirection::Down if position + 1 == pane_count => {
+            (VerticalDirection::Up, pane_count - 1)
+        }
+        direction => (direction, 1),
+    };
+    Some((target_position, native_direction, repetitions))
+}
+
 pub fn resolve_vertical_focus(
     panes: &[VerticalPaneSnapshot],
     direction: VerticalDirection,
@@ -124,16 +146,10 @@ pub fn resolve_vertical_move(
     let Some(position) = cycle.iter().position(|(index, _)| *index == focused_index) else {
         return VerticalMovePlan::MissingFocusedPane;
     };
-    let target_position = match direction {
-        VerticalDirection::Up => (position + cycle.len() - 1) % cycle.len(),
-        VerticalDirection::Down => (position + 1) % cycle.len(),
-    };
-    let (native_direction, repetitions) = match direction {
-        VerticalDirection::Up if position == 0 => (VerticalDirection::Down, cycle.len() - 1),
-        VerticalDirection::Down if position + 1 == cycle.len() => {
-            (VerticalDirection::Up, cycle.len() - 1)
-        }
-        direction => (direction, 1),
+    let Some((target_position, native_direction, repetitions)) =
+        resolve_vertical_move_step(position, cycle.len(), direction)
+    else {
+        return VerticalMovePlan::PreservePanes;
     };
     let mut expected_pane_order = cycle.iter().map(|(index, _)| *index).collect::<Vec<_>>();
     let focused_index = expected_pane_order.remove(position);
@@ -150,8 +166,8 @@ pub fn resolve_vertical_move(
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_vertical_focus, resolve_vertical_move, VerticalDirection, VerticalFocusPlan,
-        VerticalMovePlan, VerticalPaneSnapshot,
+        resolve_vertical_focus, resolve_vertical_move, resolve_vertical_move_step,
+        VerticalDirection, VerticalFocusPlan, VerticalMovePlan, VerticalPaneSnapshot,
     };
     fn pane(
         is_work_pane: bool,
@@ -266,6 +282,14 @@ mod tests {
         assert_eq!(
             resolve_vertical_move(&bottom_focused, VerticalDirection::Up, true),
             VerticalMovePlan::PreservePanes
+        );
+    }
+
+    #[test]
+    fn consecutive_moves_do_not_need_an_intermediate_pane_update() {
+        assert_eq!(
+            resolve_vertical_move_step(0, 3, VerticalDirection::Down),
+            Some((1, VerticalDirection::Down, 1))
         );
     }
 }

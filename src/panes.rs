@@ -21,8 +21,9 @@ use yazelix_zellij_pane_orchestrator::transient_pane_contract::{
     select_transient_pane, transient_pane_identity, TransientPaneKind, TransientPaneSnapshot,
 };
 use yazelix_zellij_pane_orchestrator::vertical_focus_contract::{
-    resolve_vertical_focus, resolve_vertical_move, vertical_work_pane_order, VerticalDirection,
-    VerticalFocusPlan, VerticalMovePlan, VerticalPaneSnapshot,
+    resolve_vertical_focus, resolve_vertical_move, resolve_vertical_move_step,
+    vertical_work_pane_order, VerticalDirection, VerticalFocusPlan, VerticalMovePlan,
+    VerticalPaneSnapshot,
 };
 use zellij_tile::prelude::*;
 
@@ -58,6 +59,21 @@ pub(crate) struct PendingVerticalPaneMove {
     tab_id: usize,
     pane_id: PaneId,
     expected_pane_order: Vec<PaneId>,
+}
+
+impl PendingVerticalPaneMove {
+    fn advance(&mut self, direction: VerticalDirection) -> Option<(VerticalDirection, usize)> {
+        let position = self
+            .expected_pane_order
+            .iter()
+            .position(|pane_id| *pane_id == self.pane_id)?;
+        let len = self.expected_pane_order.len();
+        let (target_position, native_direction, repetitions) =
+            resolve_vertical_move_step(position, len, direction)?;
+        let pane_id = self.expected_pane_order.remove(position);
+        self.expected_pane_order.insert(target_position, pane_id);
+        Some((native_direction, repetitions))
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -666,18 +682,19 @@ impl State {
         let Some(active_tab_id) = self.ensure_action_ready(pipe_message) else {
             return;
         };
-        if self.pending_vertical_pane_move.is_some() {
-            if self
-                .pending_vertical_pane_move
-                .as_ref()
-                .is_some_and(|pending| pending.tab_id == active_tab_id)
-            {
-                self.queued_vertical_pane_moves.push_back(direction);
+        if let Some(pending) = self.pending_vertical_pane_move.as_mut() {
+            if pending.tab_id == active_tab_id {
+                let pane_id = pending.pane_id;
+                let Some((direction, repetitions)) = pending.advance(direction) else {
+                    self.pending_vertical_pane_move = None;
+                    self.respond(pipe_message, RESULT_MISSING);
+                    return;
+                };
+                dispatch_vertical_pane_move(pane_id, direction, repetitions);
                 self.respond(pipe_message, RESULT_OK);
                 return;
             }
             self.pending_vertical_pane_move = None;
-            self.queued_vertical_pane_moves.clear();
         }
 
         let result = self.start_vertical_pane_move(active_tab_id, direction);
@@ -725,13 +742,7 @@ impl State {
                     pane_id,
                     expected_pane_order,
                 });
-                let native_direction = match direction {
-                    VerticalDirection::Up => Direction::Up,
-                    VerticalDirection::Down => Direction::Down,
-                };
-                for _ in 0..repetitions {
-                    move_pane_with_pane_id_in_direction(pane_id, native_direction);
-                }
+                dispatch_vertical_pane_move(pane_id, direction, repetitions);
                 RESULT_OK
             }
             VerticalMovePlan::PreservePanes => RESULT_OK,
@@ -749,7 +760,6 @@ impl State {
             .get(&pending.tab_id)
         else {
             self.pending_vertical_pane_move = None;
-            self.queued_vertical_pane_moves.clear();
             return;
         };
         let Some(pane_index) = terminal_panes
@@ -757,7 +767,6 @@ impl State {
             .position(|pane| pane.pane_id == pending.pane_id)
         else {
             self.pending_vertical_pane_move = None;
-            self.queued_vertical_pane_moves.clear();
             return;
         };
         let panes = self.vertical_pane_snapshots(pending.tab_id, terminal_panes);
@@ -771,20 +780,12 @@ impl State {
                 .all(|pane_id| pending.expected_pane_order.contains(pane_id));
         if !same_panes {
             self.pending_vertical_pane_move = None;
-            self.queued_vertical_pane_moves.clear();
             return;
         }
         if current_pane_order != pending.expected_pane_order {
             return;
         }
-
         self.pending_vertical_pane_move = None;
-        while let Some(direction) = self.queued_vertical_pane_moves.pop_front() {
-            let _ = self.start_vertical_pane_move(pending.tab_id, direction);
-            if self.pending_vertical_pane_move.is_some() {
-                break;
-            }
-        }
     }
 
     fn vertical_pane_snapshots(
@@ -911,6 +912,16 @@ impl State {
                 None
             }
         }
+    }
+}
+
+fn dispatch_vertical_pane_move(pane_id: PaneId, direction: VerticalDirection, repetitions: usize) {
+    let direction = match direction {
+        VerticalDirection::Up => Direction::Up,
+        VerticalDirection::Down => Direction::Down,
+    };
+    for _ in 0..repetitions {
+        move_pane_with_pane_id_in_direction(pane_id, direction);
     }
 }
 
