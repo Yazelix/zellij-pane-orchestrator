@@ -1,23 +1,13 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransientPaneKind {
     Popup,
     Menu,
-    Config,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransientPaneIdentityContract {
     pub pane_title: &'static str,
     pub command_marker: Option<&'static str>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TransientPaneIdentityView<'a> {
-    pub pane_title: &'a str,
-    pub command_marker: Option<&'a str>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,15 +27,6 @@ pub struct TransientPaneState<Id> {
     pub is_focused: bool,
 }
 
-impl TransientPaneIdentityContract {
-    pub fn as_view(&self) -> TransientPaneIdentityView<'_> {
-        TransientPaneIdentityView {
-            pane_title: self.pane_title,
-            command_marker: self.command_marker,
-        }
-    }
-}
-
 pub fn transient_pane_identity(kind: TransientPaneKind) -> TransientPaneIdentityContract {
     match kind {
         TransientPaneKind::Popup => TransientPaneIdentityContract {
@@ -56,23 +37,12 @@ pub fn transient_pane_identity(kind: TransientPaneKind) -> TransientPaneIdentity
             pane_title: "yzx_menu",
             command_marker: None,
         },
-        TransientPaneKind::Config => TransientPaneIdentityContract {
-            pane_title: "yzx_config",
-            command_marker: None,
-        },
     }
 }
 
 pub fn select_transient_pane<Id: Copy>(
     panes: &[TransientPaneSnapshot<'_, Id>],
     identity: TransientPaneIdentityContract,
-) -> Option<TransientPaneState<Id>> {
-    select_transient_pane_by_identity(panes, identity.as_view())
-}
-
-pub fn select_transient_pane_by_identity<Id: Copy>(
-    panes: &[TransientPaneSnapshot<'_, Id>],
-    identity: TransientPaneIdentityView<'_>,
 ) -> Option<TransientPaneState<Id>> {
     panes
         .iter()
@@ -232,13 +202,6 @@ mod tests {
             transient_pane_identity(TransientPaneKind::Menu),
             TransientPaneIdentityContract {
                 pane_title: "yzx_menu",
-                command_marker: None,
-            }
-        );
-        assert_eq!(
-            transient_pane_identity(TransientPaneKind::Config),
-            TransientPaneIdentityContract {
-                pane_title: "yzx_config",
                 command_marker: None,
             }
         );

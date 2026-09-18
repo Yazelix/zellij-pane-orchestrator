@@ -7,7 +7,7 @@ use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::{
     horizontal_role_for_pane, HorizontalPaneRole,
 };
 use yazelix_zellij_pane_orchestrator::layout_state_contract::{
-    is_base_layout_name, AgentState, LayoutFamily, LayoutVariant, SidebarState,
+    is_base_layout_name, AgentState, LayoutVariant, SidebarState,
 };
 use yazelix_zellij_pane_orchestrator::pane_contract::{resolve_focus_context, FocusContextPolicy};
 use yazelix_zellij_pane_orchestrator::pane_contract::{select_managed_pane_index, PaneSnapshot};
@@ -340,7 +340,6 @@ impl Tab {
                 }
                 let sidebar = self.sidebar()?;
                 Some(LayoutVariant::new(
-                    LayoutFamily::Single,
                     if sidebar.columns <= 2 {
                         SidebarState::Closed
                     } else {
@@ -452,11 +451,15 @@ mod tests {
 
     #[test]
     fn joins_panes_to_stable_tabs_and_rejects_a_stale_position_race() {
-        let mut session = Session::default();
+        let mut session = Session::with_bootstrap("/home/user".to_string());
         assert!(!session.update_tabs(&tabs(&[(0, 10), (1, 20)])));
         assert!(session.active().is_none());
         assert!(session.update_panes(manifest(&[(0, 1), (1, 2)])));
         assert_eq!(session.active().map(|tab| tab.id), Some(10));
+        assert_eq!(
+            session.tab(10).unwrap().workspace.as_ref().unwrap().root,
+            "/home/user"
+        );
         assert_eq!(session.tab(10).unwrap().panes[0].id, 1);
         assert_eq!(session.tab(20).unwrap().panes[0].id, 2);
 
@@ -465,6 +468,10 @@ mod tests {
         assert_eq!(session.tab(20).unwrap().panes[0].id, 2);
 
         assert!(session.update_tabs(&tabs(&[(0, 20), (1, 10)])));
+        assert_eq!(
+            session.tab(20).unwrap().workspace.as_ref().unwrap().root,
+            "/home/user"
+        );
         assert_eq!(session.tab(10).unwrap().panes[0].id, 1);
         assert_eq!(session.tab(20).unwrap().panes[0].id, 2);
     }

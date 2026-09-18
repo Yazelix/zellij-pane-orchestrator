@@ -48,7 +48,6 @@ use crate::model::{ProjectedMove, Tab, Workspace, WorkspaceSource, AGENT_TITLE};
 use crate::State;
 
 pub(crate) use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::HorizontalDirection;
-pub(crate) use yazelix_zellij_pane_orchestrator::layout_state_contract::LayoutFamilyDirection;
 pub(crate) use yazelix_zellij_pane_orchestrator::vertical_focus_contract::VerticalDirection;
 
 const DENIED: &str = "permissions_denied";
@@ -244,11 +243,7 @@ impl State {
         self.respond(message, result);
     }
 
-    pub(crate) fn switch_layout_family(
-        &self,
-        message: &PipeMessage,
-        direction: LayoutFamilyDirection,
-    ) {
+    pub(crate) fn switch_layout_family(&self, message: &PipeMessage) {
         let Some(tab) = self.ready(message) else {
             return;
         };
@@ -263,16 +258,9 @@ impl State {
             self.respond(message, OK);
             return;
         }
-        let Some(current) = tab.layout() else {
+        if tab.layout().is_none() {
             self.respond(message, UNKNOWN_LAYOUT);
             return;
-        };
-        let target = current.with_next_family(direction);
-        if target != current {
-            apply_tiled_swap_layout(target.layout_name());
-            if target.agent_state == AgentState::Open {
-                self.move_agent_right(tab);
-            }
         }
         self.respond(message, OK);
     }
@@ -445,13 +433,6 @@ impl State {
             .or_else(|| tab.fallback_terminal())
         {
             focus_pane_with_id(pane, false, false);
-        }
-    }
-
-    fn move_agent_right(&self, tab: &Tab) {
-        if let Some(agent) = tab.agent() {
-            sleep(COMMAND_DELAY);
-            move_pane_with_pane_id_in_direction(agent.id, Direction::Right);
         }
     }
 }
