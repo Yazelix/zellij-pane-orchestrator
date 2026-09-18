@@ -270,11 +270,7 @@ impl State {
                 self.services.screen.config = config.screen_saver_config();
                 if self.services.screen.config.enabled {
                     if !was_enabled {
-                        subscribe(&[
-                            EventType::InputReceived,
-                            EventType::PaneClosed,
-                            EventType::CommandPaneExited,
-                        ]);
+                        subscribe(&[EventType::InputReceived]);
                     }
                     self.services.screen.last_input = Some(Instant::now());
                     let idle = self.services.screen.config.idle_seconds;

@@ -660,11 +660,11 @@ impl State {
     }
 
     pub(crate) fn toggle_workspace_popup(&self, message: &PipeMessage) {
-        let Some(tab) = self.ready(message) else {
-            return;
-        };
         let Some(popup_id) = message.payload.as_deref() else {
             self.respond(message, INVALID);
+            return;
+        };
+        let Some(tab) = self.ready(message) else {
             return;
         };
         let Some(workspace) = tab.workspace.as_ref() else {
@@ -679,16 +679,13 @@ impl State {
             self.respond(message, MISSING);
             return;
         };
-        let Some(plugin_id) = self.session.manifest().and_then(|manifest| {
-            workspace_popup_destination_id(
-                url,
-                manifest
-                    .panes
-                    .values()
-                    .flatten()
-                    .map(|pane| (pane.id, pane.exited, pane.plugin_url.as_deref())),
-            )
-        }) else {
+        let Some(plugin_id) = workspace_popup_destination_id(
+            url,
+            self.session
+                .panes()
+                .into_iter()
+                .map(|pane| (pane.id, pane.exited, pane.plugin_url.as_deref())),
+        ) else {
             self.respond(message, MISSING);
             return;
         };
@@ -897,9 +894,6 @@ fn vertical_move(
 }
 
 fn dispatch_vertical_move(pane: PaneId, direction: VerticalDirection, repetitions: usize) {
-    if repetitions == 0 {
-        return;
-    }
     let direction = match direction {
         VerticalDirection::Up => Direction::Up,
         VerticalDirection::Down => Direction::Down,

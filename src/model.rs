@@ -25,9 +25,8 @@ pub(crate) const AGENT_TITLE: &str = "agent";
 #[derive(Default)]
 pub(crate) struct Session {
     tabs: HashMap<usize, Tab>,
-    tab_id_by_position: HashMap<usize, usize>,
     active_tab_id: Option<usize>,
-    manifest: Option<PaneManifest>,
+    pending_manifest: Option<PaneManifest>,
     bootstrap_workspace: Workspace,
 }
 
@@ -89,7 +88,6 @@ impl Session {
 
     pub(crate) fn update_tabs(&mut self, infos: &[TabInfo]) -> bool {
         let mut previous = std::mem::take(&mut self.tabs);
-        self.tab_id_by_position.clear();
         self.active_tab_id = None;
 
         for info in infos {
@@ -99,7 +97,6 @@ impl Session {
             tab.position = info.position;
             tab.swap_layout = info.active_swap_layout_name.clone();
             tab.floating_panes_visible = info.are_floating_panes_visible;
-            self.tab_id_by_position.insert(info.position, info.tab_id);
             if info.active {
                 self.active_tab_id = Some(info.tab_id);
             }
@@ -111,7 +108,7 @@ impl Session {
         }
 
         if infos.is_empty() {
-            self.manifest = None;
+            self.pending_manifest = None;
             true
         } else {
             self.retry_join()
@@ -119,19 +116,24 @@ impl Session {
     }
 
     pub(crate) fn update_panes(&mut self, manifest: PaneManifest) -> bool {
-        self.manifest = Some(manifest);
+        self.pending_manifest = Some(manifest);
         self.retry_join()
     }
 
     pub(crate) fn retry_join(&mut self) -> bool {
-        let Some(manifest) = self.manifest.as_ref() else {
+        let Some(manifest) = self.pending_manifest.as_ref() else {
             return true;
         };
-        if manifest.panes.len() != self.tab_id_by_position.len()
+        let tab_id_by_position = self
+            .tabs
+            .values()
+            .map(|tab| (tab.position, tab.id))
+            .collect::<HashMap<_, _>>();
+        if manifest.panes.len() != tab_id_by_position.len()
             || !manifest
                 .panes
                 .keys()
-                .all(|position| self.tab_id_by_position.contains_key(position))
+                .all(|position| tab_id_by_position.contains_key(position))
         {
             return false;
         }
@@ -148,26 +150,21 @@ impl Session {
             .collect::<HashMap<_, _>>();
         if position_pane_identity_conflicts_with_cached_tabs(
             &pane_ids_by_position,
-            &self.tab_id_by_position,
+            &tab_id_by_position,
             &cached_pane_ids_by_tab,
         ) {
             return false;
         }
 
-        let joined = manifest
-            .panes
-            .iter()
-            .filter_map(|(position, panes)| {
-                self.tab_id_by_position
-                    .get(position)
-                    .map(|id| (*id, panes.clone()))
-            })
-            .collect::<Vec<_>>();
-        for (id, panes) in joined {
-            if let Some(tab) = self.tabs.get_mut(&id) {
-                tab.replace_panes(panes);
+        for (position, panes) in &manifest.panes {
+            if let Some(tab) = tab_id_by_position
+                .get(position)
+                .and_then(|id| self.tabs.get_mut(id))
+            {
+                tab.replace_panes(panes.clone());
             }
         }
+        self.pending_manifest = None;
         true
     }
 
@@ -191,8 +188,16 @@ impl Session {
         self.tabs.values()
     }
 
-    pub(crate) fn manifest(&self) -> Option<&PaneManifest> {
-        self.manifest.as_ref()
+    pub(crate) fn panes(&self) -> Vec<&PaneInfo> {
+        self.pending_manifest
+            .as_ref()
+            .map(|manifest| manifest.panes.values().flatten().collect())
+            .unwrap_or_else(|| {
+                self.tabs
+                    .values()
+                    .flat_map(|tab| tab.panes.iter())
+                    .collect()
+            })
     }
 }
 
