@@ -50,26 +50,22 @@ pub fn select_managed_pane_index(
     panes: &[PaneSnapshot<'_>],
     expected_title: &str,
 ) -> Option<usize> {
-    let matching_indexes: Vec<usize> = panes
+    let mut first = None;
+    let mut first_visible = None;
+    for (index, pane) in panes
         .iter()
         .enumerate()
-        .filter(|(_, pane)| !pane.is_plugin)
-        .filter(|(_, pane)| !pane.exited)
-        .filter(|(_, pane)| pane.title.trim() == expected_title)
-        .map(|(index, _)| index)
-        .collect();
-
-    matching_indexes
-        .iter()
-        .copied()
-        .find(|index| panes[*index].is_focused)
-        .or_else(|| {
-            matching_indexes
-                .iter()
-                .copied()
-                .find(|index| !panes[*index].is_suppressed)
-        })
-        .or_else(|| matching_indexes.first().copied())
+        .filter(|(_, pane)| !pane.is_plugin && !pane.exited && pane.title.trim() == expected_title)
+    {
+        first.get_or_insert(index);
+        if pane.is_focused {
+            return Some(index);
+        }
+        if !pane.is_suppressed {
+            first_visible.get_or_insert(index);
+        }
+    }
+    first_visible.or(first)
 }
 
 pub fn resolve_focus_context(

@@ -26,7 +26,7 @@ use yazelix_zellij_pane_orchestrator::sidebar_contract::{
     SidebarPostLayoutFocus, SidebarVisibilityAction,
 };
 use yazelix_zellij_pane_orchestrator::transient_pane_contract::{
-    select_transient_pane, transient_pane_identity, TransientPaneKind, TransientPaneSnapshot,
+    select_transient_pane, TransientPaneSnapshot,
 };
 use yazelix_zellij_pane_orchestrator::vertical_focus_contract::{
     resolve_vertical_focus, resolve_vertical_move, resolve_vertical_move_step, VerticalFocusPlan,
@@ -930,24 +930,21 @@ fn transient_panes(tab: &Tab) -> SessionTransientPanes {
         .map(|pane| TransientPaneSnapshot {
             pane_id: PaneId::Terminal(pane.id),
             title: pane.title.as_str(),
-            terminal_command: pane.terminal_command.as_deref(),
-            is_plugin: false,
-            exited: false,
             is_floating: pane.is_floating,
             is_focused: pane.is_focused,
         })
         .collect::<Vec<_>>();
     SessionTransientPanes {
-        popup: transient_pane(&panes, TransientPaneKind::Popup),
-        menu: transient_pane(&panes, TransientPaneKind::Menu),
+        popup: transient_pane(&panes, "yzx_popup"),
+        menu: transient_pane(&panes, "yzx_menu"),
     }
 }
 
 fn transient_pane(
     panes: &[TransientPaneSnapshot<'_, PaneId>],
-    kind: TransientPaneKind,
+    title: &str,
 ) -> Option<SessionTransientPane> {
-    let pane = select_transient_pane(panes, transient_pane_identity(kind))?;
+    let pane = select_transient_pane(panes, title)?;
     Some(SessionTransientPane {
         pane_id: pane_id(Some(pane.pane_id))?,
         is_focused: pane.is_focused,

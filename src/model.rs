@@ -1,5 +1,3 @@
-#![cfg_attr(test, allow(dead_code))]
-
 use std::collections::{HashMap, HashSet};
 
 use serde::Deserialize;
