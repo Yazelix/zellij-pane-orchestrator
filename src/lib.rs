@@ -1,3 +1,5 @@
+extern crate self as yazelix_zellij_pane_orchestrator;
+
 pub mod active_tab_session_state;
 pub mod agent_focus_contract;
 pub mod editor_open_contract;
@@ -17,3 +19,6 @@ pub mod transient_pane_contract;
 pub mod vertical_focus_contract;
 pub mod workspace_popup_contract;
 pub mod workspace_recovery_contract;
+
+#[cfg(test)]
+mod model;

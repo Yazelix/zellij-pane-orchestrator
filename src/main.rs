@@ -1,71 +1,26 @@
-mod agent;
-mod editor;
-mod heartbeat;
-mod layout;
-mod panes;
-mod runtime_config;
-mod screen_saver;
-mod status_bar_cache;
-mod workspace;
+mod commands;
+mod model;
+mod services;
 
-use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
-
+use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
-use workspace::{bootstrap_workspace_root, WorkspaceState};
-use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::HorizontalDirection;
-use yazelix_zellij_pane_orchestrator::layout_state_contract::LayoutFamilyDirection;
-use yazelix_zellij_pane_orchestrator::pane_contract::SessionExitState;
+
+use model::Session;
+use services::Services;
 use yazelix_zellij_pane_orchestrator::right_sidebar_command_contract::RightSidebarCommandConfig;
-use yazelix_zellij_pane_orchestrator::screen_saver_contract::ScreenSaverConfig;
-use yazelix_zellij_pane_orchestrator::status_bar_cache_contract::StatusBarCacheRuntime;
-use yazelix_zellij_pane_orchestrator::tab_identity_contract::TabIdentityState;
-use yazelix_zellij_pane_orchestrator::timer_schedule_contract::next_timer_delay;
-use yazelix_zellij_pane_orchestrator::vertical_focus_contract::VerticalDirection;
 use zellij_tile::prelude::*;
 
-pub(crate) const RESULT_OK: &str = "ok";
-pub(crate) const RESULT_FOCUSED_EDITOR: &str = "focused_editor";
-pub(crate) const RESULT_FOCUSED_AGENT: &str = "focused_agent";
-pub(crate) const RESULT_MISSING: &str = "missing";
-pub(crate) const RESULT_NOT_READY: &str = "not_ready";
-pub(crate) const RESULT_DENIED: &str = "permissions_denied";
-pub(crate) const RESULT_INVALID_PAYLOAD: &str = "invalid_payload";
-pub(crate) const RESULT_UNKNOWN_LAYOUT: &str = "unknown_layout";
-pub(crate) const RESULT_UNSUPPORTED_EDITOR: &str = "unsupported_editor";
-pub(crate) const RESULT_STALE_GENERATION: &str = "stale_generation";
-pub(crate) const RESULT_VERSION_MISMATCH: &str = "version_mismatch";
-pub(crate) const COMMAND_STEP_DELAY_MS: u64 = 35;
-const TAB_LOCAL_PANE_RECONCILE_DELAY: Duration = Duration::from_millis(500);
+const RECONCILE_DELAY: Duration = Duration::from_millis(500);
 
 #[derive(Default)]
 struct State {
-    tab_identity: TabIdentityState,
-    active_swap_layout_name_by_tab: HashMap<usize, Option<String>>,
-    tab_pane_caches: panes::TabPaneCaches,
-    pending_vertical_pane_move: Option<panes::PendingVerticalPaneMove>,
-    last_pane_manifest: Option<PaneManifest>,
-    tab_local_pane_reconcile_next_flush: Option<Instant>,
-    active_tab_floating_panes_visible: bool,
-    workspace_state_by_tab: HashMap<usize, WorkspaceState>,
-    initial_workspace_state: Option<WorkspaceState>,
-    runtime_dir: PathBuf,
-    screen_saver_config: ScreenSaverConfig,
+    session: Session,
+    reconcile_at: Option<Instant>,
+    permissions_granted: bool,
+    managed_agent_command_marker: Option<String>,
     right_sidebar_command: Option<RightSidebarCommandConfig>,
     popup_plugin_url: Option<String>,
-    managed_agent_command_marker: Option<String>,
-    screen_saver_last_input: Option<Instant>,
-    screen_saver_next_timeout: Option<Instant>,
-    screen_saver_pane_id: Option<PaneId>,
-    screen_saver_restore_floating_layer: bool,
-    status_bar_cache_runtime: Option<StatusBarCacheRuntime>,
-    status_bar_cache_last_payload: Option<String>,
-    workspace_status_pipe_payload_by_plugin: HashMap<u32, String>,
-    orchestrator_heartbeat: heartbeat::OrchestratorHeartbeat,
-    timer_armed_for: Option<Instant>,
-    runtime_config_generation: String,
-    permissions_granted: bool,
-    session_exit: SessionExitState,
+    services: Services,
 }
 
 register_plugin!(State);
@@ -74,8 +29,18 @@ impl ZellijPlugin for State {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
         set_selectable(false);
         let plugin_ids = get_plugin_ids();
-        let bootstrap_root = bootstrap_workspace_root(&plugin_ids.initial_cwd);
-        self.initial_workspace_state = Some(WorkspaceState::from_bootstrap_root(bootstrap_root));
+        self.session = Session::with_bootstrap(plugin_ids.initial_cwd.display().to_string());
+        self.managed_agent_command_marker = configuration
+            .get("managed_agent_command_marker")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        self.right_sidebar_command =
+            RightSidebarCommandConfig::from_plugin_configuration(&configuration);
+        self.popup_plugin_url = configuration
+            .get("popup_plugin_url")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        self.initialize_services(&configuration, &plugin_ids.initial_cwd);
         request_permission(&[
             PermissionType::ReadApplicationState,
             PermissionType::ChangeApplicationState,
@@ -86,35 +51,6 @@ impl ZellijPlugin for State {
             PermissionType::MessageAndLaunchOtherPlugins,
             PermissionType::ReadSessionEnvironmentVariables,
         ]);
-        self.runtime_dir = configuration
-            .get("runtime_dir")
-            .map(|value| PathBuf::from(value.trim()))
-            .filter(|path| !path.as_os_str().is_empty())
-            .unwrap_or(plugin_ids.initial_cwd);
-        self.screen_saver_config = ScreenSaverConfig::from_plugin_configuration(&configuration);
-        self.right_sidebar_command =
-            RightSidebarCommandConfig::from_plugin_configuration(&configuration);
-        self.popup_plugin_url = configuration
-            .get("popup_plugin_url")
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
-        self.managed_agent_command_marker = configuration
-            .get("managed_agent_command_marker")
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
-        self.runtime_config_generation = configuration
-            .get("runtime_config_generation")
-            .map(|value| value.trim().to_string())
-            .unwrap_or_default();
-        self.session_exit = SessionExitState::new(
-            configuration
-                .get("quit_on_last_terminal_close")
-                .is_some_and(|value| value.trim() == "true"),
-        );
-        if self.screen_saver_config.enabled {
-            self.screen_saver_last_input = Some(Instant::now());
-        }
-        self.initialize_orchestrator_heartbeat();
         let mut subscriptions = vec![
             EventType::TabUpdate,
             EventType::PaneUpdate,
@@ -123,294 +59,110 @@ impl ZellijPlugin for State {
             EventType::PermissionRequestResult,
             EventType::Timer,
         ];
-        if self.screen_saver_config.enabled {
+        if self.screen_enabled() {
             subscriptions.push(EventType::InputReceived);
         }
         subscribe(&subscriptions);
-        self.schedule_initial_screen_saver_timeout();
-        self.arm_next_timer();
+        self.arm_timer();
     }
 
     fn update(&mut self, event: Event) -> bool {
-        self.record_orchestrator_event(heartbeat::event_kind(&event));
+        self.record_event(&event);
         match event {
             Event::TabUpdate(tabs) => {
-                self.tab_identity = TabIdentityState::from_tabs(&tabs);
-                self.active_tab_floating_panes_visible = tabs
-                    .iter()
-                    .any(|tab| tab.active && tab.are_floating_panes_visible);
-                self.reconcile_workspace_state();
-                self.active_swap_layout_name_by_tab = tabs
-                    .into_iter()
-                    .map(|tab| (tab.tab_id, tab.active_swap_layout_name))
-                    .collect();
-                self.retain_tab_local_pane_state_for_current_tabs();
-                if let Some(pane_manifest) = self.last_pane_manifest.clone() {
-                    self.rebuild_tab_local_pane_state_or_defer(&pane_manifest);
-                }
+                let joined = self.session.update_tabs(&tabs);
+                self.join(joined);
             }
-            Event::PaneUpdate(pane_manifest) => {
-                let should_quit = self.session_exit.observe_pane_snapshot(
-                    pane_manifest
-                        .panes
-                        .values()
-                        .flatten()
-                        .any(|pane| !pane.is_plugin),
-                );
-                self.last_pane_manifest = Some(pane_manifest.clone());
-                self.rebuild_tab_local_pane_state_or_defer(&pane_manifest);
-                if should_quit && self.permissions_granted {
-                    quit_zellij();
-                }
+            Event::PaneUpdate(manifest) => {
+                self.observe_manifest_for_exit(&manifest);
+                let joined = self.session.update_panes(manifest);
+                self.join(joined);
             }
             Event::PermissionRequestResult(status) => {
                 self.permissions_granted = status == PermissionStatus::Granted;
             }
-            Event::InputReceived => self.record_screen_saver_input(),
+            Event::InputReceived => self.screen_input(),
+            Event::PaneClosed(pane) => self.pane_closed(pane),
+            Event::CommandPaneExited(id, _, _) => self.command_pane_exited(id),
             Event::Timer(_) => {
-                self.timer_armed_for = None;
-                self.record_orchestrator_timer();
-                self.handle_tab_local_pane_reconcile_timer();
-                self.handle_screen_saver_timer();
-                self.handle_orchestrator_heartbeat_timer();
-            }
-            Event::PaneClosed(pane_id) => {
-                self.session_exit
-                    .record_pane_closed(matches!(pane_id, PaneId::Terminal(_)));
-                self.handle_screen_saver_pane_closed(pane_id);
-            }
-            Event::CommandPaneExited(terminal_id, _, _) => {
-                self.handle_screen_saver_command_exit(terminal_id);
+                self.handle_service_timer();
+                self.retry_join();
             }
             _ => {}
         }
-        self.refresh_status_bar_cache();
-        self.arm_next_timer();
+        self.refresh_status();
+        self.arm_timer();
         false
     }
 
-    fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
-        self.record_orchestrator_pipe(pipe_message.name.as_str());
-        match pipe_message.name.as_str() {
-            "toggle_editor_right_sidebar_focus" => {
-                self.toggle_editor_right_sidebar_focus(&pipe_message);
-                false
-            }
+    fn pipe(&mut self, message: PipeMessage) -> bool {
+        self.record_pipe(&message.name);
+        match message.name.as_str() {
+            "get_active_tab_session_state" => self.get_active_tab_session_state(&message),
             "move_focus_left_or_tab" => {
-                self.move_horizontal_focus_or_tab(&pipe_message, HorizontalDirection::Left);
-                false
+                self.move_horizontal_focus(&message, commands::HorizontalDirection::Left)
             }
             "move_focus_right_or_tab" => {
-                self.move_horizontal_focus_or_tab(&pipe_message, HorizontalDirection::Right);
-                false
+                self.move_horizontal_focus(&message, commands::HorizontalDirection::Right)
             }
             "move_focus_down" => {
-                self.move_vertical_focus(&pipe_message, VerticalDirection::Down);
-                false
+                self.move_vertical_focus(&message, commands::VerticalDirection::Down)
             }
-            "move_focus_up" => {
-                self.move_vertical_focus(&pipe_message, VerticalDirection::Up);
-                false
-            }
+            "move_focus_up" => self.move_vertical_focus(&message, commands::VerticalDirection::Up),
             "move_pane_down" => {
-                self.move_vertical_pane(&pipe_message, VerticalDirection::Down);
-                false
+                self.move_vertical_pane(&message, commands::VerticalDirection::Down)
             }
-            "move_pane_up" => {
-                self.move_vertical_pane(&pipe_message, VerticalDirection::Up);
-                false
-            }
-            "open_file" => {
-                self.open_file_in_managed_editor(&pipe_message);
-                false
-            }
-            "set_managed_editor_cwd" => {
-                self.set_managed_editor_cwd(&pipe_message);
-                false
-            }
+            "move_pane_up" => self.move_vertical_pane(&message, commands::VerticalDirection::Up),
             "next_family" => {
-                self.switch_layout_family(&pipe_message, LayoutFamilyDirection::Next);
-                false
+                self.switch_layout_family(&message, commands::LayoutFamilyDirection::Next)
             }
             "previous_family" => {
-                self.switch_layout_family(&pipe_message, LayoutFamilyDirection::Previous);
-                false
+                self.switch_layout_family(&message, commands::LayoutFamilyDirection::Previous)
             }
-            "toggle_sidebar" => {
-                self.toggle_sidebar(&pipe_message);
-                false
-            }
-            "toggle_agent_sidebar" => {
-                self.toggle_agent_sidebar(&pipe_message);
-                false
-            }
-            "hide_sidebar" => {
-                self.hide_sidebar(&pipe_message);
-                false
-            }
-            "get_active_tab_session_state" => {
-                self.get_active_tab_session_state(&pipe_message);
-                false
-            }
-            "close_startup_picker_tab" => {
-                self.close_startup_picker_tab(&pipe_message);
-                false
-            }
-            "complete_startup_picker_handoff" => {
-                self.complete_startup_picker_handoff(&pipe_message);
-                false
-            }
-            "retarget_workspace" => {
-                self.retarget_workspace(&pipe_message);
-                false
-            }
-            "open_terminal_in_cwd" => {
-                self.open_terminal_in_cwd(&pipe_message);
-                false
-            }
-            "open_workspace_terminal" => {
-                self.open_workspace_terminal(&pipe_message);
-                false
-            }
-            "toggle_workspace_popup" => {
-                self.toggle_workspace_popup(&pipe_message);
-                false
-            }
-            "reload_runtime_config" => {
-                self.reload_runtime_config(&pipe_message);
-                false
-            }
-            "maintainer_debug_editor_state" => {
-                self.maintainer_debug_editor_state(&pipe_message);
-                false
-            }
-            "debug_write_literal" => {
-                self.debug_write_literal(&pipe_message);
-                false
-            }
-            "debug_send_escape" => {
-                self.debug_send_escape(&pipe_message);
-                false
-            }
-            _ => false,
+            "toggle_sidebar" => self.toggle_sidebar(&message),
+            "hide_sidebar" => self.hide_sidebar(&message),
+            "toggle_agent_sidebar" => self.toggle_agent_sidebar(&message),
+            "toggle_editor_right_sidebar_focus" => self.toggle_editor_right_sidebar_focus(&message),
+            "open_file" => self.open_file(&message),
+            "set_managed_editor_cwd" => self.set_managed_editor_cwd(&message),
+            "retarget_workspace" => self.retarget_workspace(&message),
+            "close_startup_picker_tab" => self.close_startup_picker_tab(&message),
+            "complete_startup_picker_handoff" => self.complete_startup_picker_handoff(&message),
+            "open_terminal_in_cwd" => self.open_terminal_in_cwd(&message),
+            "open_workspace_terminal" => self.open_workspace_terminal(&message),
+            "toggle_workspace_popup" => self.toggle_workspace_popup(&message),
+            "maintainer_debug_editor_state" => self.maintainer_debug_editor_state(&message),
+            "debug_write_literal" => self.debug_write_literal(&message),
+            "debug_send_escape" => self.debug_send_escape(&message),
+            "reload_runtime_config" => self.reload_runtime_config(&message),
+            _ => {}
         }
+        false
     }
 
     fn render(&mut self, _rows: usize, _cols: usize) {}
 }
 
 impl State {
-    fn rebuild_tab_local_pane_state(&mut self, pane_manifest: &PaneManifest) {
-        if !self.tab_identity.has_complete_position_map(
-            pane_manifest.panes.keys().copied(),
-            pane_manifest.panes.len(),
-        ) {
-            return;
+    fn join(&mut self, joined: bool) {
+        if joined {
+            self.reconcile_at = None;
+            self.recover_workspaces();
+        } else {
+            self.reconcile_at = Some(Instant::now() + RECONCILE_DELAY);
         }
-
-        self.tab_pane_caches = panes::TabPaneCaches::rebuild(
-            pane_manifest,
-            self.tab_identity.tab_id_by_position(),
-            &self.tab_pane_caches.focus_context_by_tab,
-        );
-        self.workspace_status_pipe_payload_by_plugin
-            .retain(|plugin_id, _| self.tab_pane_caches.has_zjstatus_plugin_id(*plugin_id));
-        self.recover_workspace_state_from_managed_editors();
-        self.reconcile_vertical_pane_move();
     }
 
-    fn rebuild_tab_local_pane_state_or_defer(&mut self, pane_manifest: &PaneManifest) {
-        if self
-            .tab_pane_caches
-            .pane_manifest_conflicts_with_cached_tab_positions(
-                pane_manifest,
-                self.tab_identity.tab_id_by_position(),
-            )
-        {
-            self.schedule_tab_local_pane_reconcile_flush();
-            return;
-        }
-
-        self.tab_local_pane_reconcile_next_flush = None;
-        self.rebuild_tab_local_pane_state(pane_manifest);
-    }
-
-    fn schedule_tab_local_pane_reconcile_flush(&mut self) {
-        self.tab_local_pane_reconcile_next_flush =
-            Some(Instant::now() + TAB_LOCAL_PANE_RECONCILE_DELAY);
-        self.arm_next_timer();
-    }
-
-    fn handle_tab_local_pane_reconcile_timer(&mut self) {
-        let Some(deadline) = self.tab_local_pane_reconcile_next_flush else {
+    fn retry_join(&mut self) {
+        let Some(deadline) = self.reconcile_at else {
             return;
         };
         if Instant::now() < deadline {
             return;
         }
-
-        self.tab_local_pane_reconcile_next_flush = None;
-        let Some(pane_manifest) = self.last_pane_manifest.clone() else {
-            return;
-        };
-        if self
-            .tab_pane_caches
-            .pane_manifest_conflicts_with_cached_tab_positions(
-                &pane_manifest,
-                self.tab_identity.tab_id_by_position(),
-            )
-        {
-            return;
+        self.reconcile_at = None;
+        if self.session.retry_join() {
+            self.recover_workspaces();
         }
-
-        self.rebuild_tab_local_pane_state(&pane_manifest);
-    }
-
-    fn retain_tab_local_pane_state_for_current_tabs(&mut self) {
-        let current_tab_ids = self.tab_identity.current_tab_ids();
-        if current_tab_ids.is_empty() {
-            self.last_pane_manifest = None;
-        }
-        self.tab_pane_caches.retain_current_tabs(&current_tab_ids);
-    }
-
-    pub(crate) fn ensure_action_ready(&self, pipe_message: &PipeMessage) -> Option<usize> {
-        if !self.permissions_granted {
-            self.respond(pipe_message, RESULT_DENIED);
-            return None;
-        }
-
-        let Some(active_tab_id) = self.tab_identity.active_tab_id() else {
-            self.respond(pipe_message, RESULT_NOT_READY);
-            return None;
-        };
-
-        Some(active_tab_id)
-    }
-
-    pub(crate) fn respond(&self, pipe_message: &PipeMessage, result: &str) {
-        if let PipeSource::Cli(pipe_id) = &pipe_message.source {
-            cli_pipe_output(pipe_id, result);
-        }
-    }
-}
-
-impl State {
-    fn arm_next_timer(&mut self) {
-        let now = Instant::now();
-        let Some((deadline, delay)) = next_timer_delay(
-            now,
-            [
-                self.screen_saver_next_timeout,
-                self.tab_local_pane_reconcile_next_flush,
-                self.orchestrator_heartbeat.next_flush,
-            ],
-            self.timer_armed_for,
-        ) else {
-            return;
-        };
-
-        set_timeout(delay.as_secs_f64());
-        self.timer_armed_for = Some(deadline);
     }
 }
