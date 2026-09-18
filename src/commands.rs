@@ -5,8 +5,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use yazelix_zellij_pane_orchestrator::active_tab_session_state::{
-    build_active_tab_session_state_v2, ActiveTabReadState, ActiveTabSessionStateV2,
-    SessionStatusExtensions, SessionTransientPane, SessionTransientPanes, SessionWorkspace,
+    ActiveTabSessionStateV2, SessionLayout, SessionManagedPanes, SessionStatusExtensions,
+    SessionTransientPane, SessionTransientPanes, SessionWorkspace,
+    ACTIVE_TAB_SESSION_SCHEMA_VERSION,
 };
 use yazelix_zellij_pane_orchestrator::agent_focus_contract::{
     resolve_agent_focus_toggle, AgentFocusTogglePlan,
@@ -159,8 +160,6 @@ impl State {
                     sidebar.as_ref(),
                     agent.as_ref(),
                 ),
-                is_plugin: false,
-                exited: false,
                 is_focused: pane.is_focused,
                 pane_x: pane.pane_x,
                 pane_y: pane.pane_y,
@@ -885,66 +884,56 @@ fn dispatch_vertical_move(pane: PaneId, direction: VerticalDirection, repetition
 }
 
 pub(crate) fn session_state(tab: &Tab) -> ActiveTabSessionStateV2 {
-    let (explicit_workspace, bootstrap_workspace) = match tab.workspace.as_ref() {
-        Some(workspace) => {
-            let value = SessionWorkspace {
-                root: workspace.root.clone(),
-                source: match workspace.source {
-                    WorkspaceSource::Bootstrap => "bootstrap",
-                    WorkspaceSource::Explicit => "explicit",
-                }
-                .to_string(),
-            };
-            match workspace.source {
-                WorkspaceSource::Bootstrap => (None, Some(value)),
-                WorkspaceSource::Explicit => (Some(value), None),
-            }
-        }
-        None => (None, None),
-    };
     let layout = tab.layout();
-    let read = ActiveTabReadState {
-        active_swap_layout_name: tab.swap_layout.clone(),
-        explicit_workspace,
-        bootstrap_workspace,
-        editor_pane_id: pane_id(tab.editor().map(|pane| pane.id)),
-        sidebar_pane_id: pane_id(tab.sidebar().map(|pane| pane.id)),
-        agent_pane_id: pane_id(tab.agent().map(|pane| pane.id)),
-        sidebar_collapsed: layout.map(|layout| layout.is_sidebar_closed()),
-        agent_collapsed: layout.and_then(|layout| layout.agent_is_closed()),
+    ActiveTabSessionStateV2 {
+        schema_version: ACTIVE_TAB_SESSION_SCHEMA_VERSION,
+        active_tab_position: tab.position,
+        workspace: tab.workspace.as_ref().map(|workspace| SessionWorkspace {
+            root: workspace.root.clone(),
+            source: match workspace.source {
+                WorkspaceSource::Bootstrap => "bootstrap",
+                WorkspaceSource::Explicit => "explicit",
+            }
+            .to_string(),
+        }),
+        managed_panes: SessionManagedPanes {
+            editor_pane_id: pane_id(tab.editor().map(|pane| pane.id)),
+            sidebar_pane_id: pane_id(tab.sidebar().map(|pane| pane.id)),
+            agent_pane_id: pane_id(tab.agent().map(|pane| pane.id)),
+        },
         focus_context: match tab.focus {
             FocusContextPolicy::Editor => "editor",
             FocusContextPolicy::Sidebar => "sidebar",
             FocusContextPolicy::Other => "other",
         }
         .to_string(),
+        layout: SessionLayout {
+            active_swap_layout_name: tab.swap_layout.clone(),
+            sidebar_collapsed: layout.map(|layout| layout.is_sidebar_closed()),
+            agent_collapsed: layout.and_then(|layout| layout.agent_is_closed()),
+        },
         transient_panes: transient_panes(tab),
         extensions: SessionStatusExtensions::default(),
-    };
-    build_active_tab_session_state_v2(tab.position, read)
-}
-
-fn transient_panes(tab: &Tab) -> SessionTransientPanes {
-    let panes = tab
-        .terminals()
-        .map(|pane| TransientPaneSnapshot {
-            pane_id: PaneId::Terminal(pane.id),
-            title: pane.title.as_str(),
-            is_floating: pane.is_floating,
-            is_focused: pane.is_focused,
-        })
-        .collect::<Vec<_>>();
-    SessionTransientPanes {
-        popup: transient_pane(&panes, "yzx_popup"),
-        menu: transient_pane(&panes, "yzx_menu"),
     }
 }
 
-fn transient_pane(
-    panes: &[TransientPaneSnapshot<'_, PaneId>],
-    title: &str,
-) -> Option<SessionTransientPane> {
-    let pane = select_transient_pane(panes, title)?;
+fn transient_panes(tab: &Tab) -> SessionTransientPanes {
+    SessionTransientPanes {
+        popup: transient_pane(tab, "yzx_popup"),
+        menu: transient_pane(tab, "yzx_menu"),
+    }
+}
+
+fn transient_pane(tab: &Tab, title: &str) -> Option<SessionTransientPane> {
+    let pane = select_transient_pane(
+        tab.terminals().map(|pane| TransientPaneSnapshot {
+            pane_id: PaneId::Terminal(pane.id),
+            title: &pane.title,
+            is_floating: pane.is_floating,
+            is_focused: pane.is_focused,
+        }),
+        title,
+    )?;
     Some(SessionTransientPane {
         pane_id: pane_id(Some(pane.pane_id))?,
         is_focused: pane.is_focused,

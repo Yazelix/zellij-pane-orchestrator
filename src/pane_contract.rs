@@ -1,8 +1,6 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PaneSnapshot<'a> {
     pub title: &'a str,
-    pub is_plugin: bool,
-    pub exited: bool,
     pub is_focused: bool,
     pub is_suppressed: bool,
 }
@@ -46,16 +44,15 @@ impl SessionExitState {
     }
 }
 
-pub fn select_managed_pane_index(
-    panes: &[PaneSnapshot<'_>],
+pub fn select_managed_pane_index<'a>(
+    panes: impl IntoIterator<Item = (usize, PaneSnapshot<'a>)>,
     expected_title: &str,
 ) -> Option<usize> {
     let mut first = None;
     let mut first_visible = None;
     for (index, pane) in panes
-        .iter()
-        .enumerate()
-        .filter(|(_, pane)| !pane.is_plugin && !pane.exited && pane.title.trim() == expected_title)
+        .into_iter()
+        .filter(|(_, pane)| pane.title.trim() == expected_title)
     {
         first.get_or_insert(index);
         if pane.is_focused {
@@ -128,22 +125,24 @@ mod tests {
         let panes = [
             PaneSnapshot {
                 title: "hx",
-                is_plugin: false,
-                exited: false,
                 is_focused: true,
                 is_suppressed: false,
             },
             PaneSnapshot {
                 title: "editor",
-                is_plugin: false,
-                exited: false,
                 is_focused: false,
                 is_suppressed: false,
             },
         ];
 
-        assert_eq!(select_managed_pane_index(&panes, "editor"), Some(1));
-        assert_eq!(select_managed_pane_index(&panes, "hx"), Some(0));
+        assert_eq!(
+            select_managed_pane_index(panes.iter().copied().enumerate(), "editor"),
+            Some(1)
+        );
+        assert_eq!(
+            select_managed_pane_index(panes.into_iter().enumerate(), "hx"),
+            Some(0)
+        );
     }
 
     // Defends: focused managed panes win over unfocused duplicates when multiple panes share the same managed title.
@@ -152,21 +151,20 @@ mod tests {
         let panes = [
             PaneSnapshot {
                 title: "editor",
-                is_plugin: false,
-                exited: false,
                 is_focused: false,
                 is_suppressed: false,
             },
             PaneSnapshot {
                 title: "editor",
-                is_plugin: false,
-                exited: false,
                 is_focused: true,
                 is_suppressed: false,
             },
         ];
 
-        assert_eq!(select_managed_pane_index(&panes, "editor"), Some(1));
+        assert_eq!(
+            select_managed_pane_index(panes.into_iter().enumerate(), "editor"),
+            Some(1)
+        );
     }
 
     // Defends: yzx helper panes preserve the previous focus context instead of hijacking focus-policy state.

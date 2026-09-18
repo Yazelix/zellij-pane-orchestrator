@@ -93,21 +93,6 @@ pub struct SessionStatusExtensions {
     pub ai_pane_activity: Vec<SessionAiPaneActivity>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ActiveTabReadState {
-    pub explicit_workspace: Option<SessionWorkspace>,
-    pub bootstrap_workspace: Option<SessionWorkspace>,
-    pub editor_pane_id: Option<String>,
-    pub sidebar_pane_id: Option<String>,
-    pub agent_pane_id: Option<String>,
-    pub focus_context: String,
-    pub active_swap_layout_name: Option<String>,
-    pub sidebar_collapsed: Option<bool>,
-    pub agent_collapsed: Option<bool>,
-    pub transient_panes: SessionTransientPanes,
-    pub extensions: SessionStatusExtensions,
-}
-
 /// Stable v2 payload for the active tab. Serialized to JSON for the pipe response.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ActiveTabSessionStateV2 {
@@ -123,142 +108,11 @@ pub struct ActiveTabSessionStateV2 {
     pub extensions: SessionStatusExtensions,
 }
 
-pub fn build_active_tab_session_state_v2(
-    active_tab_position: usize,
-    read_state: ActiveTabReadState,
-) -> ActiveTabSessionStateV2 {
-    ActiveTabSessionStateV2 {
-        schema_version: ACTIVE_TAB_SESSION_SCHEMA_VERSION,
-        active_tab_position,
-        workspace: read_state
-            .explicit_workspace
-            .or(read_state.bootstrap_workspace),
-        managed_panes: SessionManagedPanes {
-            editor_pane_id: read_state.editor_pane_id,
-            sidebar_pane_id: read_state.sidebar_pane_id,
-            agent_pane_id: read_state.agent_pane_id,
-        },
-        focus_context: read_state.focus_context,
-        layout: SessionLayout {
-            active_swap_layout_name: read_state.active_swap_layout_name,
-            sidebar_collapsed: read_state.sidebar_collapsed,
-            agent_collapsed: read_state.agent_collapsed,
-        },
-        transient_panes: read_state.transient_panes,
-        extensions: read_state.extensions,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     // Test lane: default
     use super::*;
     use serde_json::json;
-
-    // Regression: the stable active-tab snapshot must prefer explicit workspace truth over bootstrap fallback.
-    #[test]
-    fn session_snapshot_prefers_explicit_workspace_and_keeps_typed_session_fields() {
-        let snapshot = build_active_tab_session_state_v2(
-            3,
-            ActiveTabReadState {
-                explicit_workspace: Some(SessionWorkspace {
-                    root: "/tmp/project".into(),
-                    source: "explicit".into(),
-                }),
-                bootstrap_workspace: Some(SessionWorkspace {
-                    root: "/tmp/bootstrap".into(),
-                    source: "bootstrap".into(),
-                }),
-                editor_pane_id: Some("terminal:7".into()),
-                sidebar_pane_id: Some("terminal:8".into()),
-                agent_pane_id: None,
-                focus_context: "sidebar".into(),
-                active_swap_layout_name: Some("single_closed".into()),
-                sidebar_collapsed: Some(true),
-                agent_collapsed: None,
-                transient_panes: SessionTransientPanes {
-                    popup: Some(SessionTransientPane {
-                        pane_id: "terminal:11".into(),
-                        is_focused: false,
-                    }),
-                    menu: None,
-                },
-                extensions: SessionStatusExtensions::default(),
-            },
-        );
-
-        assert_eq!(snapshot.schema_version, ACTIVE_TAB_SESSION_SCHEMA_VERSION);
-        assert_eq!(snapshot.active_tab_position, 3);
-        assert_eq!(
-            snapshot.workspace,
-            Some(SessionWorkspace {
-                root: "/tmp/project".into(),
-                source: "explicit".into(),
-            })
-        );
-        assert_eq!(
-            snapshot.managed_panes,
-            SessionManagedPanes {
-                editor_pane_id: Some("terminal:7".into()),
-                sidebar_pane_id: Some("terminal:8".into()),
-                agent_pane_id: None,
-            }
-        );
-        assert_eq!(snapshot.focus_context, "sidebar");
-        assert_eq!(
-            snapshot.layout,
-            SessionLayout {
-                active_swap_layout_name: Some("single_closed".into()),
-                sidebar_collapsed: Some(true),
-                agent_collapsed: None,
-            }
-        );
-        assert_eq!(
-            snapshot.transient_panes.popup,
-            Some(SessionTransientPane {
-                pane_id: "terminal:11".into(),
-                is_focused: false,
-            })
-        );
-    }
-
-    // Invariant: bootstrap workspace remains the fallback only when no explicit workspace state exists for the tab.
-    #[test]
-    fn session_snapshot_falls_back_to_bootstrap_workspace_when_explicit_is_missing() {
-        let snapshot = build_active_tab_session_state_v2(
-            1,
-            ActiveTabReadState {
-                explicit_workspace: None,
-                bootstrap_workspace: Some(SessionWorkspace {
-                    root: "/tmp/bootstrap".into(),
-                    source: "bootstrap".into(),
-                }),
-                editor_pane_id: None,
-                sidebar_pane_id: Some("terminal:9".into()),
-                agent_pane_id: None,
-                focus_context: "other".into(),
-                active_swap_layout_name: None,
-                sidebar_collapsed: None,
-                agent_collapsed: None,
-                transient_panes: SessionTransientPanes::default(),
-                extensions: SessionStatusExtensions::default(),
-            },
-        );
-
-        assert_eq!(
-            snapshot.workspace,
-            Some(SessionWorkspace {
-                root: "/tmp/bootstrap".into(),
-                source: "bootstrap".into(),
-            })
-        );
-        assert_eq!(
-            snapshot.managed_panes.sidebar_pane_id,
-            Some("terminal:9".into())
-        );
-        assert_eq!(snapshot.focus_context, "other");
-        assert_eq!(snapshot.transient_panes, SessionTransientPanes::default());
-    }
 
     // Defends: additive v2 fields remain readable by consumers replaying older active-tab payload fixtures.
     #[test]
@@ -286,31 +140,33 @@ mod tests {
     // Defends: the status bus exposes stable session facts without embedding bar/zjstatus formatting.
     #[test]
     fn serializes_representative_payload_without_presentation_formatting() {
-        let snapshot = build_active_tab_session_state_v2(
-            2,
-            ActiveTabReadState {
-                explicit_workspace: Some(SessionWorkspace {
-                    root: "/repo".into(),
-                    source: "explicit".into(),
-                }),
-                bootstrap_workspace: None,
+        let snapshot = ActiveTabSessionStateV2 {
+            schema_version: ACTIVE_TAB_SESSION_SCHEMA_VERSION,
+            active_tab_position: 2,
+            workspace: Some(SessionWorkspace {
+                root: "/repo".into(),
+                source: "explicit".into(),
+            }),
+            managed_panes: SessionManagedPanes {
                 editor_pane_id: Some("terminal:1".into()),
                 sidebar_pane_id: Some("terminal:2".into()),
                 agent_pane_id: Some("terminal:3".into()),
-                focus_context: "editor".into(),
+            },
+            focus_context: "editor".into(),
+            layout: SessionLayout {
                 active_swap_layout_name: Some("single_open_agent_closed".into()),
                 sidebar_collapsed: Some(false),
                 agent_collapsed: Some(true),
-                transient_panes: SessionTransientPanes {
-                    popup: None,
-                    menu: Some(SessionTransientPane {
-                        pane_id: "terminal:9".into(),
-                        is_focused: true,
-                    }),
-                },
-                extensions: SessionStatusExtensions::default(),
             },
-        );
+            transient_panes: SessionTransientPanes {
+                popup: None,
+                menu: Some(SessionTransientPane {
+                    pane_id: "terminal:9".into(),
+                    is_focused: true,
+                }),
+            },
+            extensions: SessionStatusExtensions::default(),
+        };
 
         let serialized = serde_json::to_string(&snapshot).unwrap();
         let decoded: ActiveTabSessionStateV2 = serde_json::from_str(&serialized).unwrap();

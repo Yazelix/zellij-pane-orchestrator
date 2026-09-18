@@ -6,12 +6,12 @@ pub struct TransientPaneSnapshot<'a, Id> {
     pub is_focused: bool,
 }
 
-pub fn select_transient_pane<'a, 'pane, Id>(
-    panes: &'a [TransientPaneSnapshot<'pane, Id>],
+pub fn select_transient_pane<'a, Id>(
+    panes: impl IntoIterator<Item = TransientPaneSnapshot<'a, Id>>,
     pane_title: &str,
-) -> Option<&'a TransientPaneSnapshot<'pane, Id>> {
+) -> Option<TransientPaneSnapshot<'a, Id>> {
     panes
-        .iter()
+        .into_iter()
         .filter(|pane| pane.is_floating && pane.title.trim() == pane_title)
         .max_by_key(|pane| pane.is_focused)
 }
@@ -39,7 +39,7 @@ mod tests {
     fn selects_transient_pane_by_title() {
         let panes = [transient_pane(7, "floating_picker", false)];
         assert_eq!(
-            select_transient_pane(&panes, "floating_picker").map(|pane| pane.pane_id),
+            select_transient_pane(panes, "floating_picker").map(|pane| pane.pane_id),
             Some(7)
         );
     }
@@ -53,7 +53,7 @@ mod tests {
         ];
 
         assert_eq!(
-            select_transient_pane(&panes, "floating_menu").map(|pane| pane.pane_id),
+            select_transient_pane(panes, "floating_menu").map(|pane| pane.pane_id),
             Some(2)
         );
     }
@@ -71,6 +71,6 @@ mod tests {
             transient_pane(2, "editor", true),
         ];
 
-        assert!(select_transient_pane(&panes, "floating_picker").is_none());
+        assert!(select_transient_pane(panes, "floating_picker").is_none());
     }
 }

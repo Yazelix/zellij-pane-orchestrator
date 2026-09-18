@@ -63,8 +63,6 @@ fn terminal_command_matches_marker(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HorizontalPaneSnapshot {
     pub role: HorizontalPaneRole,
-    pub is_plugin: bool,
-    pub exited: bool,
     pub is_focused: bool,
     pub pane_x: usize,
     pub pane_y: usize,
@@ -94,10 +92,8 @@ pub fn resolve_horizontal_focus(
         };
     }
 
-    let Some((focused_index, focused_pane)) = panes
-        .iter()
-        .enumerate()
-        .find(|(_, pane)| !pane.is_plugin && !pane.exited && pane.is_focused)
+    let Some((focused_index, focused_pane)) =
+        panes.iter().enumerate().find(|(_, pane)| pane.is_focused)
     else {
         return HorizontalFocusPlan::MissingFocusedPane;
     };
@@ -111,7 +107,6 @@ pub fn resolve_horizontal_focus(
         .iter()
         .enumerate()
         .filter(|(index, _pane)| *index != focused_index)
-        .filter(|(_, pane)| !pane.is_plugin && !pane.exited)
         .filter(|(_, pane)| !(sidebar_is_closed && pane.role == HorizontalPaneRole::Sidebar))
         .filter(|(_, pane)| !(agent_is_closed && pane.role == HorizontalPaneRole::Agent))
         .filter_map(|(index, pane)| {
@@ -168,8 +163,6 @@ mod tests {
     ) -> HorizontalPaneSnapshot {
         HorizontalPaneSnapshot {
             role,
-            is_plugin: false,
-            exited: false,
             is_focused,
             pane_x,
             pane_y,

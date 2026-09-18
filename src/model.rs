@@ -248,19 +248,24 @@ impl Tab {
     }
 
     pub(crate) fn managed(&self, title: &str) -> Option<ManagedPane> {
-        let snapshots = self
-            .panes
-            .iter()
-            .map(|pane| PaneSnapshot {
-                title: &pane.title,
-                is_plugin: pane.is_plugin,
-                exited: pane.exited,
-                is_focused: pane.is_focused,
-                is_suppressed: pane.is_suppressed,
-            })
-            .collect::<Vec<_>>();
-        let pane =
-            select_managed_pane_index(&snapshots, title).and_then(|index| self.panes.get(index))?;
+        let index = select_managed_pane_index(
+            self.panes
+                .iter()
+                .enumerate()
+                .filter(|(_, pane)| !pane.is_plugin && !pane.exited)
+                .map(|(index, pane)| {
+                    (
+                        index,
+                        PaneSnapshot {
+                            title: &pane.title,
+                            is_focused: pane.is_focused,
+                            is_suppressed: pane.is_suppressed,
+                        },
+                    )
+                }),
+            title,
+        )?;
+        let pane = self.panes.get(index)?;
         Some(ManagedPane {
             id: PaneId::Terminal(pane.id),
             columns: pane.pane_columns,
