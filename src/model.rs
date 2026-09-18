@@ -53,6 +53,15 @@ pub(crate) enum WorkspaceSource {
     Explicit,
 }
 
+impl WorkspaceSource {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Bootstrap => "bootstrap",
+            Self::Explicit => "explicit",
+        }
+    }
+}
+
 impl Default for Workspace {
     fn default() -> Self {
         Self {

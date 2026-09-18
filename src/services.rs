@@ -253,12 +253,7 @@ impl State {
     }
 
     pub(crate) fn reload_runtime_config(&mut self, message: &PipeMessage) {
-        if !self.permissions_granted {
-            self.respond(message, "permissions_denied");
-            return;
-        }
-        if self.session.active().is_none() {
-            self.respond(message, "not_ready");
+        if self.ready(message).is_none() {
             return;
         }
         match decode_runtime_config_reload(

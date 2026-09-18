@@ -226,11 +226,11 @@ impl State {
         let Some(tab_id) = self.ready(message).map(|tab| tab.id) else {
             return;
         };
-        let marker = self.managed_agent_command_marker.clone();
+        let marker = self.managed_agent_command_marker.as_deref();
         let result = match self
             .session
             .tab_mut(tab_id)
-            .map(|tab| vertical_move(tab, direction, marker.as_deref()))
+            .map(|tab| vertical_move(tab, direction, marker))
         {
             Some(VerticalMoveResult::Dispatch(pane, direction, repetitions)) => {
                 dispatch_vertical_move(pane, direction, repetitions);
@@ -686,13 +686,7 @@ impl State {
             active_tab_position: tab.map(|tab| tab.position),
             active_swap_layout_name: tab.and_then(|tab| tab.swap_layout.clone()),
             workspace_root: workspace.map(|workspace| workspace.root.clone()),
-            workspace_root_source: workspace.map(|workspace| {
-                match workspace.source {
-                    WorkspaceSource::Bootstrap => "bootstrap",
-                    WorkspaceSource::Explicit => "explicit",
-                }
-                .to_string()
-            }),
+            workspace_root_source: workspace.map(|workspace| workspace.source.as_str().to_string()),
             editor_pane_id: pane_id(tab.and_then(Tab::editor).map(|pane| pane.id)),
             sidebar_pane_id: pane_id(tab.and_then(Tab::sidebar).map(|pane| pane.id)),
             agent_pane_id: pane_id(tab.and_then(Tab::agent).map(|pane| pane.id)),
@@ -824,6 +818,9 @@ fn vertical_move(
     direction: VerticalDirection,
     managed_agent_command_marker: Option<&str>,
 ) -> VerticalMoveResult {
+    if visible_popup(tab, managed_agent_command_marker) {
+        return VerticalMoveResult::Preserve;
+    }
     if let Some(projected) = tab.projected_move.as_mut() {
         let Some(position) = projected
             .order
@@ -840,9 +837,6 @@ fn vertical_move(
         let pane = projected.order.remove(position);
         projected.order.insert(target, pane);
         return VerticalMoveResult::Dispatch(projected.pane_id, native_direction, repetitions);
-    }
-    if visible_popup(tab, managed_agent_command_marker) {
-        return VerticalMoveResult::Preserve;
     }
 
     let terminals = tab.terminal_panes();
@@ -890,11 +884,7 @@ pub(crate) fn session_state(tab: &Tab) -> ActiveTabSessionStateV2 {
         active_tab_position: tab.position,
         workspace: tab.workspace.as_ref().map(|workspace| SessionWorkspace {
             root: workspace.root.clone(),
-            source: match workspace.source {
-                WorkspaceSource::Bootstrap => "bootstrap",
-                WorkspaceSource::Explicit => "explicit",
-            }
-            .to_string(),
+            source: workspace.source.as_str().to_string(),
         }),
         managed_panes: SessionManagedPanes {
             editor_pane_id: pane_id(tab.editor().map(|pane| pane.id)),
