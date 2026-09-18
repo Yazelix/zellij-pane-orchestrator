@@ -7,7 +7,6 @@ license = "Apache-2.0"
 [[bin]]
 name = "yazelix_zellij_pane_orchestrator"
 path = "src/main.rs"
-test = false
 bench = false
 
 [dependencies]

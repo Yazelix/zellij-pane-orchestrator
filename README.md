@@ -8,7 +8,7 @@ swap-layout selection to plugins. Stock Zellij does not provide that operation.
 ## Build
 
 ```bash
-cargo test --lib
+cargo test
 cargo build --target wasm32-wasip1 --profile release
 nix build .#yazelix_zellij_pane_orchestrator
 ```

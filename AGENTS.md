@@ -16,7 +16,7 @@ Only pane-orchestrator-specific guidance belongs here.
 ## Local Commands
 
 - `cargo fmt --all -- --check`
-- `cargo test --lib`
+- `cargo test`
 - `cargo build --target wasm32-wasip1 --profile release`
 - `nix build .#yazelix_zellij_pane_orchestrator --no-link`
 

@@ -162,7 +162,7 @@ impl State {
     }
 
     pub(crate) fn handle_service_timer(&mut self) {
-        self.services.timer_armed_for = None;
+        // Zellij timeouts cannot be cancelled, so this callback may be stale.
         self.services.heartbeat.last_timer_at = Some(unix_time());
         self.handle_screen_timer();
         self.handle_heartbeat_timer();

@@ -19,6 +19,3 @@ pub mod transient_pane_contract;
 pub mod vertical_focus_contract;
 pub mod workspace_popup_contract;
 pub mod workspace_recovery_contract;
-
-#[cfg(test)]
-mod model;
