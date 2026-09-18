@@ -36,6 +36,7 @@ pub(crate) struct Tab {
     pub(crate) swap_layout: Option<String>,
     pub(crate) floating_panes_visible: bool,
     pub(crate) panes: Vec<PaneInfo>,
+    pane_snapshot_received: bool,
     pub(crate) focus: FocusContextPolicy,
     pub(crate) workspace: Option<Workspace>,
     pub(crate) projected_move: Option<ProjectedMove>,
@@ -69,7 +70,6 @@ pub(crate) struct ManagedPane {
     pub(crate) columns: usize,
 }
 
-#[derive(Clone)]
 pub(crate) struct ProjectedMove {
     pub(crate) pane_id: PaneId,
     pub(crate) order: Vec<PaneId>,
@@ -122,7 +122,7 @@ impl Session {
 
     pub(crate) fn retry_join(&mut self) -> bool {
         let Some(manifest) = self.pending_manifest.as_ref() else {
-            return true;
+            return self.tabs.values().all(|tab| tab.pane_snapshot_received);
         };
         let tab_id_by_position = self
             .tabs
@@ -169,7 +169,9 @@ impl Session {
     }
 
     pub(crate) fn active(&self) -> Option<&Tab> {
-        self.active_tab_id.and_then(|id| self.tabs.get(&id))
+        self.active_tab_id
+            .and_then(|id| self.tabs.get(&id))
+            .filter(|tab| tab.pane_snapshot_received)
     }
 
     pub(crate) fn active_mut(&mut self) -> Option<&mut Tab> {
@@ -209,6 +211,7 @@ impl Tab {
             swap_layout: None,
             floating_panes_visible: false,
             panes: Vec::new(),
+            pane_snapshot_received: false,
             focus: FocusContextPolicy::Other,
             workspace: None,
             projected_move: None,
@@ -236,6 +239,7 @@ impl Tab {
         });
         self.focus = resolve_focus_context(focused_title, self.focus);
         self.panes = panes;
+        self.pane_snapshot_received = true;
         self.reconcile_projected_move();
     }
 
@@ -378,7 +382,7 @@ impl Tab {
     }
 
     fn reconcile_projected_move(&mut self) {
-        let Some(projected) = self.projected_move.clone() else {
+        let Some(projected) = self.projected_move.as_ref() else {
             return;
         };
         let terminals = self.terminal_panes();
@@ -449,8 +453,10 @@ mod tests {
     #[test]
     fn joins_panes_to_stable_tabs_and_rejects_a_stale_position_race() {
         let mut session = Session::default();
-        assert!(session.update_tabs(&tabs(&[(0, 10), (1, 20)])));
+        assert!(!session.update_tabs(&tabs(&[(0, 10), (1, 20)])));
+        assert!(session.active().is_none());
         assert!(session.update_panes(manifest(&[(0, 1), (1, 2)])));
+        assert_eq!(session.active().map(|tab| tab.id), Some(10));
         assert_eq!(session.tab(10).unwrap().panes[0].id, 1);
         assert_eq!(session.tab(20).unwrap().panes[0].id, 2);
 

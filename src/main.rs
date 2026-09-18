@@ -12,6 +12,21 @@ use zellij_tile::prelude::*;
 
 const RECONCILE_DELAY: Duration = Duration::from_millis(500);
 
+fn event_subscriptions(screen_enabled: bool) -> Vec<EventType> {
+    let mut events = vec![
+        EventType::TabUpdate,
+        EventType::PaneUpdate,
+        EventType::PaneClosed,
+        EventType::CommandPaneExited,
+        EventType::PermissionRequestResult,
+        EventType::Timer,
+    ];
+    if screen_enabled {
+        events.push(EventType::InputReceived);
+    }
+    events
+}
+
 #[derive(Default)]
 struct State {
     session: Session,
@@ -51,18 +66,7 @@ impl ZellijPlugin for State {
             PermissionType::MessageAndLaunchOtherPlugins,
             PermissionType::ReadSessionEnvironmentVariables,
         ]);
-        let mut subscriptions = vec![
-            EventType::TabUpdate,
-            EventType::PaneUpdate,
-            EventType::PaneClosed,
-            EventType::CommandPaneExited,
-            EventType::PermissionRequestResult,
-            EventType::Timer,
-        ];
-        if self.screen_enabled() {
-            subscriptions.push(EventType::InputReceived);
-        }
-        subscribe(&subscriptions);
+        subscribe(&event_subscriptions(self.screen_enabled()));
         self.arm_timer();
     }
 
@@ -164,5 +168,22 @@ impl State {
         if self.session.retry_join() {
             self.recover_workspaces();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression: pinned Zellij replaces the screen-side background subscription set,
+    // so enabling input events must resend every event the orchestrator still needs.
+    #[test]
+    fn screen_saver_subscription_keeps_core_events() {
+        let events = event_subscriptions(true);
+
+        assert!(event_subscriptions(false)
+            .into_iter()
+            .all(|event| events.contains(&event)));
+        assert!(events.contains(&EventType::InputReceived));
     }
 }
