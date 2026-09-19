@@ -48,15 +48,15 @@ pub fn resolve_sidebar_hide(
     has_editor: bool,
     has_focus_fallback: bool,
 ) -> Option<SidebarPostLayoutFocus> {
-    if sidebar_is_closed {
-        return None;
-    }
-
-    if focus_context == FocusContextPolicy::Sidebar && (has_editor || has_focus_fallback) {
-        Some(SidebarPostLayoutFocus::MoveRightToNonSidebar)
-    } else {
-        Some(SidebarPostLayoutFocus::Preserve)
-    }
+    (!sidebar_is_closed).then(|| {
+        resolve_sidebar_visibility_toggle(
+            sidebar_is_closed,
+            focus_context,
+            has_editor,
+            has_focus_fallback,
+        )
+        .post_layout_focus
+    })
 }
 
 pub fn is_managed_sidebar_plugin(
