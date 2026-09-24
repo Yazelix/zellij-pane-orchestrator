@@ -310,7 +310,11 @@ impl State {
             self.respond(message, NEEDS_SECOND_PANE);
             return;
         }
-        self.respond(message, target.layout_name());
+        if matches!(&message.source, PipeSource::Keybind) {
+            apply_tiled_swap_layout(target.layout_name());
+        } else {
+            self.respond(message, target.layout_name());
+        }
     }
 
     pub(crate) fn hide_sidebar(&self, message: &PipeMessage) {
