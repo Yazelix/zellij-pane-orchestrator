@@ -118,6 +118,7 @@ impl ZellijPlugin for State {
             }
             "move_pane_up" => self.move_vertical_pane(&message, commands::VerticalDirection::Up),
             "next_family" | "previous_family" => self.switch_layout_family(&message),
+            "content_layout_target" => self.content_layout_target(&message),
             "toggle_sidebar" => self.toggle_sidebar(&message),
             "hide_sidebar" => self.hide_sidebar(&message),
             "toggle_agent_sidebar" => self.toggle_agent_sidebar(&message),

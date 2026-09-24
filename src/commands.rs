@@ -57,6 +57,7 @@ const FOCUSED_EDITOR: &str = "focused_editor";
 const INVALID: &str = "invalid_payload";
 const MISSING: &str = "missing";
 const NOT_READY: &str = "not_ready";
+const NEEDS_SECOND_PANE: &str = "needs_second_pane";
 const OK: &str = "ok";
 const UNSUPPORTED_EDITOR: &str = "unsupported_editor";
 const UNKNOWN_LAYOUT: &str = "unknown_layout";
@@ -290,6 +291,26 @@ impl State {
             plan.post_layout_focus,
         );
         self.respond(message, OK);
+    }
+
+    pub(crate) fn content_layout_target(&self, message: &PipeMessage) {
+        let Some(tab) = self.ready(message) else {
+            return;
+        };
+        let Some(layout) = tab.layout() else {
+            self.respond(message, UNKNOWN_LAYOUT);
+            return;
+        };
+        let target = layout.toggle_content_mode();
+        if target == layout {
+            self.respond(message, MISSING);
+            return;
+        }
+        if target.is_columns() && tab.work_pane_count() < 2 {
+            self.respond(message, NEEDS_SECOND_PANE);
+            return;
+        }
+        self.respond(message, target.layout_name());
     }
 
     pub(crate) fn hide_sidebar(&self, message: &PipeMessage) {

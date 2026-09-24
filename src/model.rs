@@ -328,6 +328,16 @@ impl Tab {
             .count()
     }
 
+    pub(crate) fn work_pane_count(&self) -> usize {
+        self.terminals()
+            .filter(|pane| {
+                !pane.is_floating
+                    && !pane.is_suppressed
+                    && !matches!(pane.title.trim(), SIDEBAR_TITLE | AGENT_TITLE)
+            })
+            .count()
+    }
+
     pub(crate) fn zjstatus_plugin_id(&self) -> Option<u32> {
         self.panes
             .iter()
@@ -428,7 +438,7 @@ fn terminal_ids(panes: &[PaneInfo]) -> HashSet<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::Session;
+    use super::{Session, Tab};
     use std::collections::HashMap;
     use zellij_tile::prelude::{PaneInfo, PaneManifest, TabInfo};
 
@@ -486,5 +496,23 @@ mod tests {
         );
         assert_eq!(session.tab(10).unwrap().panes[0].id, 1);
         assert_eq!(session.tab(20).unwrap().panes[0].id, 2);
+    }
+
+    #[test]
+    fn counts_visible_work_panes_without_sidebars_or_popups() {
+        let mut tab = Tab::new(1);
+        tab.panes = ["sidebar", "editor", "shell", "agent", "popup"]
+            .into_iter()
+            .enumerate()
+            .map(|(id, title)| PaneInfo {
+                id: id as u32,
+                title: title.to_string(),
+                is_floating: title == "popup",
+                ..PaneInfo::default()
+            })
+            .collect();
+        assert_eq!(tab.work_pane_count(), 2);
+        tab.panes[2].is_suppressed = true;
+        assert_eq!(tab.work_pane_count(), 1);
     }
 }

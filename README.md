@@ -61,6 +61,8 @@ These commands are intended to work without Yazelix runtime paths:
 - `move_pane_up`
 - `next_family`
 - `previous_family`
+- `content_layout_target` (returns the exact next named swap layout for the
+  current tab; entering columns requires two visible tiled work panes)
 - `toggle_sidebar`
 - `hide_sidebar`
 - `get_active_tab_session_state`

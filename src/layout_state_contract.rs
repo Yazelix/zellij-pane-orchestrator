@@ -12,9 +12,16 @@ pub enum AgentState {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ContentMode {
+    Stacked,
+    Columns,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LayoutVariant {
     pub sidebar_state: SidebarState,
     pub agent_state: AgentState,
+    content_mode: ContentMode,
 }
 
 const LAYOUT_ORDER: &[LayoutVariant] = &[
@@ -24,6 +31,8 @@ const LAYOUT_ORDER: &[LayoutVariant] = &[
     LayoutVariant::new(SidebarState::Open, AgentState::Closed),
     LayoutVariant::new(SidebarState::Closed, AgentState::Open),
     LayoutVariant::new(SidebarState::Closed, AgentState::Closed),
+    LayoutVariant::columns(SidebarState::Open),
+    LayoutVariant::columns(SidebarState::Closed),
 ];
 
 pub fn is_base_layout_name(active_swap_layout_name: Option<&str>) -> bool {
@@ -35,17 +44,28 @@ impl LayoutVariant {
         Self {
             sidebar_state,
             agent_state,
+            content_mode: ContentMode::Stacked,
+        }
+    }
+
+    const fn columns(sidebar_state: SidebarState) -> Self {
+        Self {
+            sidebar_state,
+            agent_state: AgentState::Absent,
+            content_mode: ContentMode::Columns,
         }
     }
 
     pub fn layout_name(self) -> &'static str {
-        match (self.sidebar_state, self.agent_state) {
-            (SidebarState::Open, AgentState::Absent) => "single_open",
-            (SidebarState::Closed, AgentState::Absent) => "single_closed",
-            (SidebarState::Open, AgentState::Open) => "single_open_agent_open",
-            (SidebarState::Open, AgentState::Closed) => "single_open_agent_closed",
-            (SidebarState::Closed, AgentState::Open) => "single_closed_agent_open",
-            (SidebarState::Closed, AgentState::Closed) => "single_closed_agent_closed",
+        match (self.content_mode, self.sidebar_state, self.agent_state) {
+            (ContentMode::Columns, SidebarState::Open, AgentState::Absent) => "columns_open",
+            (ContentMode::Columns, SidebarState::Closed, AgentState::Absent) => "columns_closed",
+            (_, SidebarState::Open, AgentState::Absent) => "single_open",
+            (_, SidebarState::Closed, AgentState::Absent) => "single_closed",
+            (_, SidebarState::Open, AgentState::Open) => "single_open_agent_open",
+            (_, SidebarState::Open, AgentState::Closed) => "single_open_agent_closed",
+            (_, SidebarState::Closed, AgentState::Open) => "single_closed_agent_open",
+            (_, SidebarState::Closed, AgentState::Closed) => "single_closed_agent_closed",
         }
     }
 
@@ -58,6 +78,10 @@ impl LayoutVariant {
 
     pub fn is_sidebar_closed(self) -> bool {
         self.sidebar_state == SidebarState::Closed
+    }
+
+    pub fn is_columns(self) -> bool {
+        self.content_mode == ContentMode::Columns
     }
 
     pub fn agent_is_closed(self) -> Option<bool> {
@@ -78,6 +102,24 @@ impl LayoutVariant {
     pub fn with_agent_state(self, agent_state: AgentState) -> Self {
         Self {
             agent_state,
+            content_mode: if agent_state == AgentState::Absent {
+                self.content_mode
+            } else {
+                ContentMode::Stacked
+            },
+            ..self
+        }
+    }
+
+    pub fn toggle_content_mode(self) -> Self {
+        if self.agent_state != AgentState::Absent {
+            return self;
+        }
+        Self {
+            content_mode: match self.content_mode {
+                ContentMode::Stacked => ContentMode::Columns,
+                ContentMode::Columns => ContentMode::Stacked,
+            },
             ..self
         }
     }
@@ -110,6 +152,28 @@ mod tests {
         assert_eq!(
             LayoutVariant::from_layout_name("single_closed_agent_open"),
             Some(LayoutVariant::new(SidebarState::Closed, AgentState::Open))
+        );
+    }
+
+    #[test]
+    fn content_mode_preserves_sidebar_state() {
+        let stacked = LayoutVariant::new(SidebarState::Open, AgentState::Absent);
+        let columns = stacked.toggle_content_mode();
+        assert_eq!(columns.layout_name(), "columns_open");
+        assert_eq!(
+            columns
+                .with_sidebar_state(SidebarState::Closed)
+                .layout_name(),
+            "columns_closed"
+        );
+        assert_eq!(
+            LayoutVariant::from_layout_name("columns_open"),
+            Some(columns)
+        );
+        assert_eq!(columns.toggle_content_mode(), stacked);
+        assert_eq!(
+            LayoutVariant::new(SidebarState::Open, AgentState::Open).toggle_content_mode(),
+            LayoutVariant::new(SidebarState::Open, AgentState::Open)
         );
     }
 }
