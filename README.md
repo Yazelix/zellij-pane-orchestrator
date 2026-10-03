@@ -71,7 +71,8 @@ repeated redraws and preserves work columns when tab info reports floating `BASE
 CLI callers supply a nonempty payload (for example `-- toggle`); the final
 empty CLI pipe message is ignored so one request toggles once.
 Hiding captures native frame offsets and restores framing on those tiled panes
-after native auto-layout runs. This prevents a work pane from retaining the
+after selecting the active hint layout and querying native completion, before
+acknowledging the toggle. This prevents a work pane from retaining the
 missing hint slot's borderless style, while leaving borderless work panes alone.
 
 ## Standalone pipe API

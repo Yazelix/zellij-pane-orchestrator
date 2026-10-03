@@ -335,13 +335,13 @@ impl State {
         let hidden = !hints.is_suppressed;
         for tab in self.session.tabs() {
             if let Some(pane) = tab.bottom_hints() {
-                Self::set_bottom_hints_hidden(tab, pane.id, hidden);
+                self.set_bottom_hints_hidden(tab, pane.id, hidden);
             }
         }
         self.respond(message, OK);
     }
 
-    fn set_bottom_hints_hidden(tab: &Tab, id: u32, hidden: bool) {
+    fn set_bottom_hints_hidden(&self, tab: &Tab, id: u32, hidden: bool) {
         let id = PaneId::Plugin(id);
         if get_pane_info(id).is_some_and(|pane| pane.is_suppressed != hidden) {
             // Native auto-layout can assign the missing hint slot's borderless style
@@ -370,6 +370,13 @@ impl State {
                 hide_pane_with_id(id);
             } else {
                 show_pane_with_id(id, false, false);
+            }
+            if self
+                .session
+                .active()
+                .is_some_and(|active| active.id == tab.id)
+            {
+                self.reconcile_active_bottom_hints();
             }
             for id in framed {
                 set_pane_borderless(id, false);
@@ -411,10 +418,14 @@ impl State {
                     .bottom_hints()
                     .filter(|pane| pane.is_suppressed != hidden)
                 {
-                    Self::set_bottom_hints_hidden(tab, pane.id, hidden);
+                    self.set_bottom_hints_hidden(tab, pane.id, hidden);
                 }
             }
         }
+        self.reconcile_active_bottom_hints();
+    }
+
+    fn reconcile_active_bottom_hints(&self) {
         let Some(tab) = self.session.active() else {
             return;
         };
@@ -471,6 +482,8 @@ impl State {
         };
         apply_tiled_swap_layout(target.layout_name());
         focus_pane_with_id(focused, false, false);
+        // Wait for the native layout before restoring the hiding snapshot's frames.
+        let _ = get_tab_info(tab.id);
     }
 
     pub(crate) fn content_layout_target(&self, message: &PipeMessage) {
