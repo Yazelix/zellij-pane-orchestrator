@@ -20,7 +20,9 @@ use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::{
     horizontal_role_for_pane, is_visible_popup_pane, resolve_horizontal_focus, HorizontalFocusPlan,
     HorizontalPaneSnapshot,
 };
-use yazelix_zellij_pane_orchestrator::layout_state_contract::{AgentState, SidebarState};
+use yazelix_zellij_pane_orchestrator::layout_state_contract::{
+    is_base_layout_name, AgentState, LayoutVariant, SidebarState,
+};
 use yazelix_zellij_pane_orchestrator::pane_contract::{startup_picker_tab_id, FocusContextPolicy};
 use yazelix_zellij_pane_orchestrator::sidebar_contract::{
     resolve_sidebar_hide, resolve_sidebar_visibility_toggle, sidebar_post_layout_focus_nudges,
@@ -39,10 +41,11 @@ use yazelix_zellij_pane_orchestrator::workspace_popup_contract::{
 use yazelix_zellij_pane_orchestrator::workspace_recovery_contract::recovered_workspace_root;
 use zellij_tile::prelude::{
     apply_tiled_swap_layout, cli_pipe_output, close_pane_with_id, close_tab_with_id,
-    focus_pane_with_id, get_pane_cwd, go_to_next_tab, go_to_previous_tab, move_focus,
+    focus_pane_with_id, get_focused_pane_info, get_pane_cwd, get_pane_info, get_tab_info,
+    go_to_next_tab, go_to_previous_tab, hide_pane_with_id, move_focus,
     move_pane_with_pane_id_in_direction, open_command_pane, open_terminal, pipe_message_to_plugin,
-    rename_pane_with_id, rename_tab, write_chars_to_pane_id, write_to_pane_id, CommandToRun,
-    Direction, MessageToPlugin, PaneId, PipeMessage, PipeSource,
+    rename_pane_with_id, rename_tab, show_pane_with_id, write_chars_to_pane_id, write_to_pane_id,
+    CommandToRun, Direction, MessageToPlugin, PaneId, PipeMessage, PipeSource,
 };
 
 use crate::model::{ProjectedMove, Tab, Workspace, WorkspaceSource, AGENT_TITLE};
@@ -291,6 +294,129 @@ impl State {
             plan.post_layout_focus,
         );
         self.respond(message, OK);
+    }
+
+    pub(crate) fn toggle_bottom_hints(&self, message: &PipeMessage) {
+        // Alias pipes reach every client instance, plus an empty CLI EOF message.
+        if !self.session.is_leading_client(self.client_id)
+            || (matches!(&message.source, PipeSource::Cli(_)) && message.payload.is_none())
+        {
+            return;
+        }
+        if self.ready(message).is_none() {
+            return;
+        }
+        for tab in self.session.tabs() {
+            if tab
+                .layout()
+                .and_then(|layout| layout.with_bottom_hints_hidden(false))
+                .is_none()
+            {
+                self.respond(message, UNKNOWN_LAYOUT);
+                return;
+            }
+            if tab.bottom_hints().is_none() {
+                self.respond(message, MISSING);
+                return;
+            }
+        }
+        let Some(hints) = self
+            .session
+            .bottom_hints()
+            .and_then(|pane| get_pane_info(PaneId::Plugin(pane.id)))
+        else {
+            self.respond(message, MISSING);
+            return;
+        };
+        let hidden = !hints.is_suppressed;
+        for tab in self.session.tabs() {
+            if let Some(pane) = tab.bottom_hints() {
+                Self::set_bottom_hints_hidden(pane.id, hidden);
+            }
+        }
+        self.respond(message, OK);
+    }
+
+    fn set_bottom_hints_hidden(id: u32, hidden: bool) {
+        let id = PaneId::Plugin(id);
+        if get_pane_info(id).is_some_and(|pane| pane.is_suppressed != hidden) {
+            if hidden {
+                hide_pane_with_id(id);
+            } else {
+                show_pane_with_id(id, false, false);
+            }
+        }
+    }
+
+    pub(crate) fn reconcile_bottom_hints(&self) {
+        let Some(anchor) = self
+            .session
+            .bottom_hints()
+            .and_then(|pane| get_pane_info(PaneId::Plugin(pane.id)))
+            .filter(|pane| pane.title == "bottom_hints")
+        else {
+            return;
+        };
+        let hidden = anchor.is_suppressed;
+        if self.session.is_leading_client(self.client_id) {
+            for tab in self.session.tabs().filter(|tab| tab.layout().is_some()) {
+                if let Some(pane) = tab
+                    .bottom_hints()
+                    .filter(|pane| pane.is_suppressed != hidden)
+                {
+                    Self::set_bottom_hints_hidden(pane.id, hidden);
+                }
+            }
+        }
+        let Some(tab) = self.session.active() else {
+            return;
+        };
+        let Some(hints) = tab
+            .bottom_hints()
+            .and_then(|pane| get_pane_info(PaneId::Plugin(pane.id)))
+        else {
+            return;
+        };
+        let Some(info) = get_tab_info(tab.id) else {
+            return;
+        };
+        let layout = if is_base_layout_name(info.active_swap_layout_name.as_deref()) {
+            tab.layout()
+        } else {
+            info.active_swap_layout_name
+                .as_deref()
+                .and_then(LayoutVariant::from_layout_name)
+        };
+        let Some(target) =
+            layout.and_then(|layout| layout.with_bottom_hints_hidden(hints.is_suppressed))
+        else {
+            return;
+        };
+        let slot_correct = hints.is_suppressed
+            || (hints.pane_rows == 1
+                && hints.pane_columns == info.display_area_columns
+                && hints.pane_y + 1 == info.display_area_rows);
+        if slot_correct
+            && (info.active_swap_layout_name.as_deref() == Some(target.layout_name())
+                || (is_base_layout_name(info.active_swap_layout_name.as_deref())
+                    && !hints.is_suppressed))
+        {
+            return;
+        }
+        let Ok((focused_tab, focused)) = get_focused_pane_info() else {
+            return;
+        };
+        if focused_tab != tab.id {
+            return;
+        }
+        let Some(focused) = (focused != PaneId::Plugin(hints.id))
+            .then_some(focused)
+            .or_else(|| tab.fallback_terminal())
+        else {
+            return;
+        };
+        apply_tiled_swap_layout(target.layout_name());
+        focus_pane_with_id(focused, false, false);
     }
 
     pub(crate) fn content_layout_target(&self, message: &PipeMessage) {

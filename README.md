@@ -1,9 +1,9 @@
 # Zellij Pane Orchestrator
 
-Standalone Zellij plugin for tab-local pane orchestration. The plugin originated in Yazelix, but core pane behavior is usable without installing Yazelix.
+Standalone Zellij plugin for pane orchestration. The plugin originated in Yazelix, but core pane behavior is usable without installing Yazelix.
 
-This revision targets Nova Zellij `796a30c4`, which exposes exact named tiled
-swap-layout selection to plugins. Stock Zellij does not provide that operation.
+The plugin requires Zellij with named tiled swap-layout selection, available
+in upstream commit `81f56e1` and the earlier Nova Zellij `796a30c4` API baseline.
 
 ## Build
 
@@ -49,6 +49,23 @@ keybinds {
 tiled plugin pane named `sidebar`. Layout order does not affect selection, and a
 visible floating pane remains visible and focused while the tiled layout changes.
 
+`toggle_bottom_hints` hides or restores one tiled plugin pane named
+`bottom_hints` in every supported tab of the current session. Layout providers
+must supply
+`single_open`, `single_closed`, `columns_open`, and `columns_closed`, each with
+an otherwise matching `_no_hints` variant whose minimum pane count is one
+lower. The hidden variants omit the hint pane; the visible variants place it
+in a fixed full-width bottom row. Sidebar and content-layout commands preserve
+the hint choice. New tabs inherit session visibility; fresh sessions use the
+provider's visible default. Each client's active tab receives the matching
+layout while preserving its focus and input mode. Background tabs receive
+restoration geometry when activated. Native TabUpdate client identities elect
+one handler for broadcast messages; native suppression of the oldest hint pane
+is the session visibility source. Unknown layouts, absent or ambiguous hint
+panes, and legacy agent-layout variants leave the session unchanged.
+CLI callers supply a nonempty payload (for example `-- toggle`); the final
+empty CLI pipe message is ignored so one request toggles once.
+
 ## Standalone pipe API
 
 These commands are intended to work without Yazelix runtime paths:
@@ -65,6 +82,7 @@ These commands are intended to work without Yazelix runtime paths:
   request, or applies it for a keybinding; entering columns requires two visible
   tiled work panes)
 - `toggle_sidebar`
+- `toggle_bottom_hints`
 - `hide_sidebar`
 - `get_active_tab_session_state`
 - `open_terminal_in_cwd`

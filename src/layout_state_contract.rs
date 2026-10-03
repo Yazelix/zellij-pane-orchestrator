@@ -22,6 +22,7 @@ pub struct LayoutVariant {
     pub sidebar_state: SidebarState,
     pub agent_state: AgentState,
     content_mode: ContentMode,
+    bottom_hints_hidden: bool,
 }
 
 const LAYOUT_ORDER: &[LayoutVariant] = &[
@@ -45,6 +46,7 @@ impl LayoutVariant {
             sidebar_state,
             agent_state,
             content_mode: ContentMode::Stacked,
+            bottom_hints_hidden: false,
         }
     }
 
@@ -53,10 +55,19 @@ impl LayoutVariant {
             sidebar_state,
             agent_state: AgentState::Absent,
             content_mode: ContentMode::Columns,
+            bottom_hints_hidden: false,
         }
     }
 
     pub fn layout_name(self) -> &'static str {
+        if self.bottom_hints_hidden {
+            return match (self.content_mode, self.sidebar_state) {
+                (ContentMode::Stacked, SidebarState::Open) => "single_open_no_hints",
+                (ContentMode::Stacked, SidebarState::Closed) => "single_closed_no_hints",
+                (ContentMode::Columns, SidebarState::Open) => "columns_open_no_hints",
+                (ContentMode::Columns, SidebarState::Closed) => "columns_closed_no_hints",
+            };
+        }
         match (self.content_mode, self.sidebar_state, self.agent_state) {
             (ContentMode::Columns, SidebarState::Open, AgentState::Absent) => "columns_open",
             (ContentMode::Columns, SidebarState::Closed, AgentState::Absent) => "columns_closed",
@@ -70,10 +81,30 @@ impl LayoutVariant {
     }
 
     pub fn from_layout_name(layout_name: &str) -> Option<Self> {
-        LAYOUT_ORDER
+        let (name, hidden) = layout_name
+            .strip_suffix("_no_hints")
+            .map(|name| (name, true))
+            .unwrap_or((layout_name, false));
+        let variant = LAYOUT_ORDER
             .iter()
             .copied()
-            .find(|variant| variant.layout_name() == layout_name)
+            .find(|variant| variant.layout_name() == name)?;
+        if hidden {
+            variant.with_bottom_hints_hidden(true)
+        } else {
+            Some(variant)
+        }
+    }
+
+    pub fn bottom_hints_hidden(self) -> bool {
+        self.bottom_hints_hidden
+    }
+
+    pub fn with_bottom_hints_hidden(self, hidden: bool) -> Option<Self> {
+        (self.agent_state == AgentState::Absent).then_some(Self {
+            bottom_hints_hidden: hidden,
+            ..self
+        })
     }
 
     pub fn is_sidebar_closed(self) -> bool {
@@ -102,6 +133,7 @@ impl LayoutVariant {
     pub fn with_agent_state(self, agent_state: AgentState) -> Self {
         Self {
             agent_state,
+            bottom_hints_hidden: self.bottom_hints_hidden && agent_state == AgentState::Absent,
             content_mode: if agent_state == AgentState::Absent {
                 self.content_mode
             } else {
@@ -129,6 +161,33 @@ impl LayoutVariant {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bottom_hints_visibility_survives_sidebar_and_content_changes() {
+        for name in [
+            "single_open",
+            "single_closed",
+            "columns_open",
+            "columns_closed",
+        ] {
+            let visible = LayoutVariant::from_layout_name(name).unwrap();
+            let hidden = visible.with_bottom_hints_hidden(true).unwrap();
+            assert_eq!(hidden.layout_name(), format!("{name}_no_hints"));
+            assert_eq!(
+                LayoutVariant::from_layout_name(hidden.layout_name()),
+                Some(hidden)
+            );
+            assert!(hidden.toggle_content_mode().bottom_hints_hidden());
+            assert!(hidden
+                .with_sidebar_state(SidebarState::Closed)
+                .bottom_hints_hidden());
+            assert_eq!(hidden.with_bottom_hints_hidden(false), Some(visible));
+        }
+        assert!(LayoutVariant::from_layout_name("custom_no_hints").is_none());
+        assert!(LayoutVariant::new(SidebarState::Open, AgentState::Open)
+            .with_bottom_hints_hidden(true)
+            .is_none());
+    }
 
     #[test]
     fn absent_swap_layout_name_is_the_base_layout() {

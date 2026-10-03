@@ -14,7 +14,7 @@ use yazelix_zellij_pane_orchestrator::tab_identity_contract::position_pane_ident
 use yazelix_zellij_pane_orchestrator::vertical_focus_contract::{
     vertical_work_pane_order, VerticalPaneSnapshot,
 };
-use zellij_tile::prelude::{PaneId, PaneInfo, PaneManifest, TabInfo};
+use zellij_tile::prelude::{ClientId, PaneId, PaneInfo, PaneManifest, TabInfo};
 
 pub(crate) const EDITOR_TITLE: &str = "editor";
 pub(crate) const SIDEBAR_TITLE: &str = "sidebar";
@@ -24,6 +24,7 @@ pub(crate) const AGENT_TITLE: &str = "agent";
 pub(crate) struct Session {
     tabs: HashMap<usize, Tab>,
     active_tab_id: Option<usize>,
+    other_clients: HashSet<ClientId>,
     pending_manifest: Option<PaneManifest>,
     bootstrap_workspace: Workspace,
 }
@@ -94,6 +95,10 @@ impl Session {
     }
 
     pub(crate) fn update_tabs(&mut self, infos: &[TabInfo]) -> bool {
+        self.other_clients = infos
+            .iter()
+            .flat_map(|tab| tab.other_focused_clients.iter().copied())
+            .collect();
         let mut previous = std::mem::take(&mut self.tabs);
         self.active_tab_id = None;
 
@@ -195,6 +200,16 @@ impl Session {
 
     pub(crate) fn tabs(&self) -> impl Iterator<Item = &Tab> {
         self.tabs.values()
+    }
+
+    pub(crate) fn is_leading_client(&self, client_id: ClientId) -> bool {
+        self.other_clients.iter().all(|other| client_id < *other)
+    }
+
+    pub(crate) fn bottom_hints(&self) -> Option<&PaneInfo> {
+        self.tabs()
+            .filter_map(Tab::bottom_hints)
+            .min_by_key(|pane| pane.id)
     }
 
     pub(crate) fn panes(&self) -> Vec<&PaneInfo> {
@@ -308,6 +323,14 @@ impl Tab {
         self.managed(AGENT_TITLE)
     }
 
+    pub(crate) fn bottom_hints(&self) -> Option<&PaneInfo> {
+        let mut panes = self.panes.iter().filter(|pane| {
+            pane.is_plugin && !pane.exited && !pane.is_floating && pane.title == "bottom_hints"
+        });
+        let pane = panes.next()?;
+        panes.next().is_none().then_some(pane)
+    }
+
     pub(crate) fn focused_terminal(&self) -> Option<PaneId> {
         self.terminals()
             .find(|pane| pane.is_focused)
@@ -353,7 +376,8 @@ impl Tab {
     }
 
     pub(crate) fn layout(&self) -> Option<LayoutVariant> {
-        self.swap_layout
+        let layout = self
+            .swap_layout
             .as_deref()
             .and_then(LayoutVariant::from_layout_name)
             .or_else(|| {
@@ -373,7 +397,12 @@ impl Tab {
                         AgentState::Absent
                     },
                 ))
-            })
+            })?;
+        Some(
+            self.bottom_hints()
+                .and_then(|hints| layout.with_bottom_hints_hidden(hints.is_suppressed))
+                .unwrap_or(layout),
+        )
     }
 
     pub(crate) fn terminal_panes(&self) -> Vec<&PaneInfo> {
@@ -442,6 +471,34 @@ mod tests {
     use std::collections::HashMap;
     use zellij_tile::prelude::{PaneInfo, PaneManifest, TabInfo};
 
+    #[test]
+    fn session_hint_owner_is_stable_across_tab_focus_and_client_departure() {
+        let mut session = Session::default();
+        let mut infos = tabs(&[(0, 10), (1, 20)]);
+        infos[0].other_focused_clients = vec![3];
+        session.update_tabs(&infos);
+        assert!(session.is_leading_client(1));
+        assert!(!session.is_leading_client(4));
+        infos[0].other_focused_clients.clear();
+        infos[1].other_focused_clients = vec![3];
+        session.update_tabs(&infos);
+        assert!(!session.is_leading_client(4));
+        infos[1].other_focused_clients.clear();
+        session.update_tabs(&infos);
+        assert!(session.is_leading_client(4));
+        for (id, pane_id, hidden) in [(10, 8, false), (20, 3, true)] {
+            session.tab_mut(id).unwrap().panes = vec![PaneInfo {
+                id: pane_id,
+                title: "bottom_hints".into(),
+                is_plugin: true,
+                is_suppressed: hidden,
+                ..PaneInfo::default()
+            }];
+        }
+        assert_eq!(session.bottom_hints().unwrap().id, 3);
+        assert!(session.bottom_hints().unwrap().is_suppressed);
+    }
+
     fn tabs(order: &[(usize, usize)]) -> Vec<TabInfo> {
         order
             .iter()
@@ -496,6 +553,29 @@ mod tests {
         );
         assert_eq!(session.tab(10).unwrap().panes[0].id, 1);
         assert_eq!(session.tab(20).unwrap().panes[0].id, 2);
+    }
+
+    #[test]
+    fn bottom_hints_layout_uses_native_visibility_and_rejects_ambiguous_panes() {
+        let mut tab = Tab::new(1);
+        tab.swap_layout = Some("columns_closed".into());
+        tab.panes = vec![PaneInfo {
+            id: 3,
+            title: "bottom_hints".into(),
+            is_plugin: true,
+            is_suppressed: true,
+            ..PaneInfo::default()
+        }];
+        assert_eq!(
+            tab.layout().unwrap().layout_name(),
+            "columns_closed_no_hints"
+        );
+        tab.panes[0].is_suppressed = false;
+        assert_eq!(tab.layout().unwrap().layout_name(), "columns_closed");
+        tab.swap_layout = Some("custom".into());
+        assert!(tab.layout().is_none());
+        tab.panes.push(tab.panes[0].clone());
+        assert!(tab.bottom_hints().is_none());
     }
 
     #[test]

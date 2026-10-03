@@ -30,6 +30,7 @@ fn event_subscriptions(screen_enabled: bool) -> Vec<EventType> {
 #[derive(Default)]
 struct State {
     session: Session,
+    client_id: ClientId,
     reconcile_at: Option<Instant>,
     permissions_granted: bool,
     managed_agent_command_marker: Option<String>,
@@ -44,6 +45,7 @@ impl ZellijPlugin for State {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
         set_selectable(false);
         let plugin_ids = get_plugin_ids();
+        self.client_id = plugin_ids.client_id;
         self.session = Session::with_bootstrap(plugin_ids.initial_cwd.display().to_string());
         self.managed_agent_command_marker = configuration
             .get("managed_agent_command_marker")
@@ -72,6 +74,10 @@ impl ZellijPlugin for State {
 
     fn update(&mut self, event: Event) -> bool {
         self.record_event(&event);
+        let hints_changed = matches!(
+            &event,
+            Event::TabUpdate(_) | Event::PaneUpdate(_) | Event::PermissionRequestResult(_)
+        );
         match event {
             Event::TabUpdate(tabs) => {
                 let joined = self.session.update_tabs(&tabs);
@@ -93,6 +99,9 @@ impl ZellijPlugin for State {
                 self.retry_join();
             }
             _ => {}
+        }
+        if hints_changed && self.permissions_granted {
+            self.reconcile_bottom_hints();
         }
         self.refresh_status();
         self.arm_timer();
@@ -120,6 +129,7 @@ impl ZellijPlugin for State {
             "next_family" | "previous_family" => self.switch_layout_family(&message),
             "content_layout_target" => self.content_layout_target(&message),
             "toggle_sidebar" => self.toggle_sidebar(&message),
+            "toggle_bottom_hints" => self.toggle_bottom_hints(&message),
             "hide_sidebar" => self.hide_sidebar(&message),
             "toggle_agent_sidebar" => self.toggle_agent_sidebar(&message),
             "toggle_editor_right_sidebar_focus" => self.toggle_editor_right_sidebar_focus(&message),
