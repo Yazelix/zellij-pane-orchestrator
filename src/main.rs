@@ -80,6 +80,18 @@ impl ZellijPlugin for State {
         );
         match event {
             Event::TabUpdate(tabs) => {
+                // Native tab closure migrates suppressed panes. A hidden hint bar
+                // belongs to its original tab, unlike session background plugins.
+                if self.session.is_leading_client(self.client_id) {
+                    for hint in self
+                        .session
+                        .tabs()
+                        .filter(|tab| !tabs.iter().any(|info| info.tab_id == tab.id))
+                        .filter_map(|tab| tab.bottom_hints())
+                    {
+                        close_pane_with_id(PaneId::Plugin(hint.id));
+                    }
+                }
                 let joined = self.session.update_tabs(&tabs);
                 self.join(joined);
             }

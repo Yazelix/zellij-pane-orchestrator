@@ -63,6 +63,11 @@ restoration geometry when activated. Native tab client identities elect one
 handler for broadcast messages, including mirrored sessions. Native suppression
 of the oldest hint pane is the session visibility source. Unknown layouts, absent or ambiguous hint
 panes, and legacy agent-layout variants leave the session unchanged.
+When a tab closes, the orchestrator closes that tab's known hint pane: native
+Zellij preserves suppressed background panes by moving them into a surviving
+tab. Other background panes retain that native behavior.
+With a popup visible, native pane geometry settles the tiled hint layout without
+repeated redraws and preserves work columns when tab info reports floating `BASE`.
 CLI callers supply a nonempty payload (for example `-- toggle`); the final
 empty CLI pipe message is ignored so one request toggles once.
 Hiding captures native frame offsets and restores framing on those tiled panes

@@ -385,7 +385,7 @@ impl Tab {
                     return None;
                 }
                 let sidebar = self.sidebar()?;
-                Some(LayoutVariant::new(
+                let mut layout = LayoutVariant::new(
                     if sidebar.columns <= 2 {
                         SidebarState::Closed
                     } else {
@@ -396,7 +396,18 @@ impl Tab {
                     } else {
                         AgentState::Absent
                     },
-                ))
+                );
+                let mut work = self
+                    .vertical_snapshots(&self.terminal_panes())
+                    .into_iter()
+                    .filter(|pane| pane.is_work_pane);
+                if work
+                    .next()
+                    .is_some_and(|first| work.any(|pane| pane.pane_x != first.pane_x))
+                {
+                    layout = layout.toggle_content_mode();
+                }
+                Some(layout)
             })?;
         Some(
             self.bottom_hints()
@@ -572,6 +583,20 @@ mod tests {
         );
         tab.panes[0].is_suppressed = false;
         assert_eq!(tab.layout().unwrap().layout_name(), "columns_closed");
+        let mut sidebar = pane(4);
+        sidebar.is_plugin = true;
+        sidebar.title = "sidebar".into();
+        sidebar.pane_columns = 32;
+        let mut left = pane(0);
+        left.pane_x = 32;
+        let mut right = pane(1);
+        right.pane_x = 70;
+        tab.panes.extend([sidebar, left, right]);
+        // Native tab info describes the floating layout while a popup is visible.
+        tab.swap_layout = Some("BASE".into());
+        assert_eq!(tab.layout().unwrap().layout_name(), "columns_open");
+        tab.panes.last_mut().unwrap().is_floating = true;
+        assert_eq!(tab.layout().unwrap().layout_name(), "single_open");
         tab.swap_layout = Some("custom".into());
         assert!(tab.layout().is_none());
         tab.panes.push(tab.panes[0].clone());

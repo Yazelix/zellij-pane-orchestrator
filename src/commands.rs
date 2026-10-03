@@ -439,12 +439,19 @@ impl State {
         else {
             return;
         };
-        let slot_correct = hints.is_suppressed
-            || (hints.pane_rows == 1
+        let slot_correct = if hints.is_suppressed {
+            tab.sidebar()
+                .and_then(|pane| get_pane_info(pane.id))
+                .is_some_and(|pane| pane.pane_y + pane.pane_rows == info.display_area_rows)
+        } else {
+            hints.pane_rows == 1
                 && hints.pane_columns == info.display_area_columns
-                && hints.pane_y + 1 == info.display_area_rows);
+                && hints.pane_y + 1 == info.display_area_rows
+        };
         if slot_correct
-            && (info.active_swap_layout_name.as_deref() == Some(target.layout_name())
+            // Tab info reports the floating layout while popups are visible.
+            && (info.are_floating_panes_visible
+                || info.active_swap_layout_name.as_deref() == Some(target.layout_name())
                 || (is_base_layout_name(info.active_swap_layout_name.as_deref())
                     && !hints.is_suppressed))
         {
