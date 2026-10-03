@@ -306,6 +306,9 @@ impl State {
         if self.ready(message).is_none() {
             return;
         }
+        if !self.leads_bottom_hints() {
+            return;
+        }
         for tab in self.session.tabs() {
             if tab
                 .layout()
@@ -348,6 +351,20 @@ impl State {
         }
     }
 
+    fn leads_bottom_hints(&self) -> bool {
+        self.session.is_leading_client(self.client_id)
+            && self
+                .session
+                .active()
+                .and_then(|tab| get_tab_info(tab.id))
+                .is_some_and(|info| {
+                    // Mirrored TabUpdate events omit peers; this live query includes them.
+                    info.other_focused_clients
+                        .iter()
+                        .all(|id| self.client_id <= *id)
+                })
+    }
+
     pub(crate) fn reconcile_bottom_hints(&self) {
         let Some(anchor) = self
             .session
@@ -358,7 +375,7 @@ impl State {
             return;
         };
         let hidden = anchor.is_suppressed;
-        if self.session.is_leading_client(self.client_id) {
+        if self.leads_bottom_hints() {
             for tab in self.session.tabs().filter(|tab| {
                 tab.layout()
                     .and_then(|layout| layout.with_bottom_hints_hidden(hidden))

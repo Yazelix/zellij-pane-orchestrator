@@ -59,9 +59,9 @@ in a fixed full-width bottom row. Sidebar and content-layout commands preserve
 the hint choice. New tabs inherit session visibility; fresh sessions use the
 provider's visible default. Each client's active tab receives the matching
 layout while preserving its focus and input mode. Background tabs receive
-restoration geometry when activated. Native TabUpdate client identities elect
-one handler for broadcast messages; native suppression of the oldest hint pane
-is the session visibility source. Unknown layouts, absent or ambiguous hint
+restoration geometry when activated. Native tab client identities elect one
+handler for broadcast messages, including mirrored sessions. Native suppression
+of the oldest hint pane is the session visibility source. Unknown layouts, absent or ambiguous hint
 panes, and legacy agent-layout variants leave the session unchanged.
 CLI callers supply a nonempty payload (for example `-- toggle`); the final
 empty CLI pipe message is ignored so one request toggles once.
