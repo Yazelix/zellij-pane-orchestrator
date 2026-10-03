@@ -359,7 +359,11 @@ impl State {
         };
         let hidden = anchor.is_suppressed;
         if self.session.is_leading_client(self.client_id) {
-            for tab in self.session.tabs().filter(|tab| tab.layout().is_some()) {
+            for tab in self.session.tabs().filter(|tab| {
+                tab.layout()
+                    .and_then(|layout| layout.with_bottom_hints_hidden(hidden))
+                    .is_some()
+            }) {
                 if let Some(pane) = tab
                     .bottom_hints()
                     .filter(|pane| pane.is_suppressed != hidden)
