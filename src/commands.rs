@@ -44,8 +44,9 @@ use zellij_tile::prelude::{
     focus_pane_with_id, get_focused_pane_info, get_pane_cwd, get_pane_info, get_tab_info,
     go_to_next_tab, go_to_previous_tab, hide_pane_with_id, move_focus,
     move_pane_with_pane_id_in_direction, open_command_pane, open_terminal, pipe_message_to_plugin,
-    rename_pane_with_id, rename_tab, show_pane_with_id, write_chars_to_pane_id, write_to_pane_id,
-    CommandToRun, Direction, MessageToPlugin, PaneId, PipeMessage, PipeSource,
+    rename_pane_with_id, rename_tab, set_pane_borderless, show_pane_with_id,
+    write_chars_to_pane_id, write_to_pane_id, CommandToRun, Direction, MessageToPlugin, PaneId,
+    PipeMessage, PipeSource,
 };
 
 use crate::model::{ProjectedMove, Tab, Workspace, WorkspaceSource, AGENT_TITLE};
@@ -334,19 +335,44 @@ impl State {
         let hidden = !hints.is_suppressed;
         for tab in self.session.tabs() {
             if let Some(pane) = tab.bottom_hints() {
-                Self::set_bottom_hints_hidden(pane.id, hidden);
+                Self::set_bottom_hints_hidden(tab, pane.id, hidden);
             }
         }
         self.respond(message, OK);
     }
 
-    fn set_bottom_hints_hidden(id: u32, hidden: bool) {
+    fn set_bottom_hints_hidden(tab: &Tab, id: u32, hidden: bool) {
         let id = PaneId::Plugin(id);
         if get_pane_info(id).is_some_and(|pane| pane.is_suppressed != hidden) {
+            // Native auto-layout can assign the missing hint slot's borderless style
+            // to a work pane. Restore the panes that had frame offsets before hiding.
+            let framed = tab
+                .panes
+                .iter()
+                .map(|pane| {
+                    if pane.is_plugin {
+                        PaneId::Plugin(pane.id)
+                    } else {
+                        PaneId::Terminal(pane.id)
+                    }
+                })
+                .filter(|id| {
+                    hidden
+                        && get_pane_info(*id).is_some_and(|pane| {
+                            !pane.is_suppressed
+                                && !pane.is_floating
+                                && (pane.pane_content_columns < pane.pane_columns
+                                    || pane.pane_content_rows < pane.pane_rows)
+                        })
+                })
+                .collect::<Vec<_>>();
             if hidden {
                 hide_pane_with_id(id);
             } else {
                 show_pane_with_id(id, false, false);
+            }
+            for id in framed {
+                set_pane_borderless(id, false);
             }
         }
     }
@@ -385,7 +411,7 @@ impl State {
                     .bottom_hints()
                     .filter(|pane| pane.is_suppressed != hidden)
                 {
-                    Self::set_bottom_hints_hidden(pane.id, hidden);
+                    Self::set_bottom_hints_hidden(tab, pane.id, hidden);
                 }
             }
         }

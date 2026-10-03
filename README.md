@@ -65,6 +65,9 @@ of the oldest hint pane is the session visibility source. Unknown layouts, absen
 panes, and legacy agent-layout variants leave the session unchanged.
 CLI callers supply a nonempty payload (for example `-- toggle`); the final
 empty CLI pipe message is ignored so one request toggles once.
+Hiding captures native frame offsets and restores framing on those tiled panes
+after native auto-layout runs. This prevents a work pane from retaining the
+missing hint slot's borderless style, while leaving borderless work panes alone.
 
 ## Standalone pipe API
 
