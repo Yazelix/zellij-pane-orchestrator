@@ -625,6 +625,7 @@ impl State {
                 path: PathBuf::from(&config.command),
                 args: config.args.clone(),
                 cwd: None,
+                border_style: None,
             },
             BTreeMap::new(),
         )

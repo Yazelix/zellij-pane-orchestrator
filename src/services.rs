@@ -352,6 +352,7 @@ impl State {
             path: launcher,
             args: vec!["screen".to_string(), style.to_string()],
             cwd: Some(cwd),
+            border_style: None,
         };
         match open_command_pane(command, BTreeMap::new()) {
             Some(pane) => {

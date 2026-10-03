@@ -12,4 +12,4 @@ bench = false
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-zellij-tile = { git = "https://github.com/Yazelix/nova-zellij", rev = "796a30c44c8c4369021e7bb91e2b6c62cfc257de" }
+zellij-tile = { git = "https://github.com/zellij-org/zellij", rev = "81f56e1aed4e17b822af5cb382a8f524e35f3eae" }

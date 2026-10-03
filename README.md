@@ -2,8 +2,8 @@
 
 Standalone Zellij plugin for pane orchestration. The plugin originated in Yazelix, but core pane behavior is usable without installing Yazelix.
 
-The plugin requires Zellij with named tiled swap-layout selection, available
-in upstream commit `81f56e1` and the earlier Nova Zellij `796a30c4` API baseline.
+The plugin uses the public upstream Zellij SDK at `81f56e1` and requires a
+compatible server with named tiled swap-layout selection.
 
 ## Build
 

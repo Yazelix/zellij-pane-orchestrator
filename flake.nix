@@ -49,7 +49,7 @@
           pname = "yazelix-zellij-pane-orchestrator";
           version = "0.1.0";
           src = pkgs.lib.cleanSource ./.;
-          cargoHash = "sha256-1xDSLrl2b4FBJIfd8QO+nNJFmaXQM1mwkSxRjVVA7UE=";
+          cargoHash = "sha256-cpKPAl/LlkWAvuHgTUA2KxSF3QL5LvyNkveu/+FzVo0=";
           auditable = !zellijPluginWasmPackageContract.cargoAuditableDisabled;
           dontCargoBuild = zellijPluginWasmPackageContract.cargoBuildHookDisabled;
           doCheck = false;
