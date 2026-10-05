@@ -49,7 +49,9 @@ use zellij_tile::prelude::{
     PipeMessage, PipeSource,
 };
 
-use crate::model::{ProjectedMove, Tab, Workspace, WorkspaceSource, AGENT_TITLE};
+use crate::model::{
+    ProjectedMove, Tab, Workspace, WorkspaceSource, AGENT_TITLE, BOTTOM_HINTS_START_HIDDEN,
+};
 use crate::State;
 
 pub(crate) use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::HorizontalDirection;
@@ -403,22 +405,31 @@ impl State {
             .session
             .bottom_hints()
             .and_then(|pane| get_pane_info(PaneId::Plugin(pane.id)))
-            .filter(|pane| pane.title == "bottom_hints")
+            .filter(|pane| {
+                matches!(
+                    pane.title.as_str(),
+                    "bottom_hints" | BOTTOM_HINTS_START_HIDDEN
+                )
+            })
         else {
             return;
         };
-        let hidden = anchor.is_suppressed;
+        // The provider's startup marker is consumed once in native pane state.
+        // Later marked tabs inherit the oldest pane's current visibility.
+        let hidden = anchor.is_suppressed || anchor.title == BOTTOM_HINTS_START_HIDDEN;
         if self.leads_bottom_hints() {
             for tab in self.session.tabs().filter(|tab| {
                 tab.layout()
                     .and_then(|layout| layout.with_bottom_hints_hidden(hidden))
                     .is_some()
             }) {
-                if let Some(pane) = tab
-                    .bottom_hints()
-                    .filter(|pane| pane.is_suppressed != hidden)
-                {
-                    self.set_bottom_hints_hidden(tab, pane.id, hidden);
+                if let Some(pane) = tab.bottom_hints() {
+                    if pane.is_suppressed != hidden {
+                        self.set_bottom_hints_hidden(tab, pane.id, hidden);
+                    }
+                    if pane.title == BOTTOM_HINTS_START_HIDDEN {
+                        rename_pane_with_id(PaneId::Plugin(pane.id), "bottom_hints");
+                    }
                 }
             }
         }

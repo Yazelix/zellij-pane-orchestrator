@@ -57,8 +57,13 @@ an otherwise matching `_no_hints` variant whose minimum pane count is one
 lower. The hidden variants omit the hint pane; the visible variants place it
 in a fixed full-width bottom row. Sidebar and content-layout commands preserve
 the hint choice. New tabs inherit session visibility; fresh sessions use the
-provider's visible default. Each client's active tab receives the matching
-layout while preserving its focus and input mode. Background tabs receive
+provider's visible default. Under `BOTTOM-HINTS-START-001`, a provider can name startup hint panes
+`bottom_hints_start_hidden` to opt into hidden startup. The oldest hint pane
+seeds visibility, and the orchestrator renames marked panes to `bottom_hints`
+after reconciliation. Later marked tabs inherit the existing choice; attaching
+clients never reapply the consumed startup preference. Visible swap layouts
+must retain the normal `bottom_hints` name. Each client's active tab receives
+the matching layout while preserving its focus and input mode. Background tabs receive
 restoration geometry when activated. Native tab client identities elect one
 handler for broadcast messages, including mirrored sessions. Native suppression
 of the oldest hint pane is the session visibility source. Unknown layouts, absent or ambiguous hint

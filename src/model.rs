@@ -19,6 +19,7 @@ use zellij_tile::prelude::{ClientId, PaneId, PaneInfo, PaneManifest, TabInfo};
 pub(crate) const EDITOR_TITLE: &str = "editor";
 pub(crate) const SIDEBAR_TITLE: &str = "sidebar";
 pub(crate) const AGENT_TITLE: &str = "agent";
+pub(crate) const BOTTOM_HINTS_START_HIDDEN: &str = "bottom_hints_start_hidden";
 
 #[derive(Default)]
 pub(crate) struct Session {
@@ -325,7 +326,13 @@ impl Tab {
 
     pub(crate) fn bottom_hints(&self) -> Option<&PaneInfo> {
         let mut panes = self.panes.iter().filter(|pane| {
-            pane.is_plugin && !pane.exited && !pane.is_floating && pane.title == "bottom_hints"
+            pane.is_plugin
+                && !pane.exited
+                && !pane.is_floating
+                && matches!(
+                    pane.title.as_str(),
+                    "bottom_hints" | BOTTOM_HINTS_START_HIDDEN
+                )
         });
         let pane = panes.next()?;
         panes.next().is_none().then_some(pane)
@@ -583,6 +590,10 @@ mod tests {
         );
         tab.panes[0].is_suppressed = false;
         assert_eq!(tab.layout().unwrap().layout_name(), "columns_closed");
+        tab.panes[0].title = "bottom_hints_start_hidden".into();
+        assert_eq!(tab.bottom_hints().unwrap().id, 3);
+        assert_eq!(tab.layout().unwrap().layout_name(), "columns_closed");
+        tab.panes[0].title = "bottom_hints".into();
         let mut sidebar = pane(4);
         sidebar.is_plugin = true;
         sidebar.title = "sidebar".into();
