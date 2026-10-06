@@ -59,18 +59,22 @@ in a fixed full-width bottom row. Sidebar and content-layout commands preserve
 the hint choice. New tabs inherit session visibility; fresh sessions use the
 provider's visible default. Under `BOTTOM-HINTS-START-001`, a provider can name startup hint panes
 `bottom_hints_start_hidden` to opt into hidden startup. The oldest hint pane
-seeds visibility, and the orchestrator renames marked panes to `bottom_hints`
-after reconciliation. Later marked tabs inherit the existing choice; attaching
-clients never reapply the consumed startup preference. Visible swap layouts
+seeds visibility once in the orchestrator's native background pane. Its title is
+`yazelix_pane_orchestrator:hints:v1:hidden` or `:visible`; it survives tab closure
+and is shared by attached clients. Marked panes become `bottom_hints` after
+reconciliation. Later tabs inherit the choice even if the original tab closes
+immediately; attaching clients never reapply startup policy. Visible swap layouts
 must retain the normal `bottom_hints` name. Each client's active tab receives
 the matching layout while preserving its focus and input mode. Background tabs receive
 restoration geometry when activated. Native tab client identities elect one
-handler for broadcast messages, including mirrored sessions. Native suppression
-of the oldest hint pane is the session visibility source. Unknown layouts, absent or ambiguous hint
+handler across all tabs for broadcast messages and retirement, including mirrored sessions. Native suppression
+of each hint pane reflects the controller's session choice. Unknown layouts, absent or ambiguous hint
 panes, and legacy agent-layout variants leave the session unchanged.
 When a tab closes, the orchestrator closes that tab's known hint pane: native
 Zellij preserves suppressed background panes by moving them into a surviving
-tab. Other background panes retain that native behavior.
+tab. Retirement removes the hint role before showing and closing the pane,
+preventing reconciliation from adopting it into the surviving tab. Other
+background panes retain native preservation.
 With a popup visible, native pane geometry settles the tiled hint layout without
 repeated redraws and preserves work columns when tab info reports floating `BASE`.
 CLI callers supply a nonempty payload (for example `-- toggle`); the final

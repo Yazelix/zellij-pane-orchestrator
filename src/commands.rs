@@ -68,6 +68,8 @@ const OK: &str = "ok";
 const UNSUPPORTED_EDITOR: &str = "unsupported_editor";
 const UNKNOWN_LAYOUT: &str = "unknown_layout";
 const COMMAND_DELAY: Duration = Duration::from_millis(35);
+const HINTS_HIDDEN: &str = "yazelix_pane_orchestrator:hints:v1:hidden";
+const HINTS_VISIBLE: &str = "yazelix_pane_orchestrator:hints:v1:visible";
 
 #[derive(Deserialize)]
 struct OpenFileRequest {
@@ -301,15 +303,13 @@ impl State {
 
     pub(crate) fn toggle_bottom_hints(&self, message: &PipeMessage) {
         // Alias pipes reach every client instance, plus an empty CLI EOF message.
-        if !self.session.is_leading_client(self.client_id)
-            || (matches!(&message.source, PipeSource::Cli(_)) && message.payload.is_none())
-        {
-            return;
-        }
-        if self.ready(message).is_none() {
+        if matches!(&message.source, PipeSource::Cli(_)) && message.payload.is_none() {
             return;
         }
         if !self.leads_bottom_hints() {
+            return;
+        }
+        if self.ready(message).is_none() {
             return;
         }
         for tab in self.session.tabs() {
@@ -334,7 +334,14 @@ impl State {
             self.respond(message, MISSING);
             return;
         };
-        let hidden = !hints.is_suppressed;
+        let Some(hidden) = self
+            .bottom_hints_hidden(hints.is_suppressed || hints.title == BOTTOM_HINTS_START_HIDDEN)
+        else {
+            self.respond(message, MISSING);
+            return;
+        };
+        let hidden = !hidden;
+        self.remember_bottom_hints_hidden(hidden);
         for tab in self.session.tabs() {
             if let Some(pane) = tab.bottom_hints() {
                 self.set_bottom_hints_hidden(tab, pane.id, hidden);
@@ -387,17 +394,41 @@ impl State {
     }
 
     fn leads_bottom_hints(&self) -> bool {
-        self.session.is_leading_client(self.client_id)
-            && self
-                .session
-                .active()
-                .and_then(|tab| get_tab_info(tab.id))
-                .is_some_and(|info| {
-                    // Mirrored TabUpdate events omit peers; this live query includes them.
-                    info.other_focused_clients
-                        .iter()
-                        .all(|id| self.client_id <= *id)
-                })
+        if !self.permissions_granted {
+            return self.session.is_leading_client(self.client_id);
+        }
+        self.leads_bottom_hints_in_tabs(self.session.tabs().map(|tab| tab.id))
+    }
+
+    pub(crate) fn leads_bottom_hints_in_tabs(&self, tabs: impl Iterator<Item = usize>) -> bool {
+        // Live queries include each tab's focused clients, including this client.
+        // Elect across the session even when clients focus different tabs.
+        tabs.filter_map(get_tab_info)
+            .flat_map(|info| info.other_focused_clients)
+            .min()
+            == Some(self.client_id)
+    }
+
+    fn bottom_hints_hidden(&self, initial_hidden: bool) -> Option<bool> {
+        let hidden = match get_pane_info(PaneId::Plugin(self.plugin_id))?
+            .title
+            .as_str()
+        {
+            HINTS_HIDDEN => true,
+            HINTS_VISIBLE => false,
+            _ => {
+                self.remember_bottom_hints_hidden(initial_hidden);
+                initial_hidden
+            }
+        };
+        Some(hidden)
+    }
+
+    fn remember_bottom_hints_hidden(&self, hidden: bool) {
+        rename_pane_with_id(
+            PaneId::Plugin(self.plugin_id),
+            if hidden { HINTS_HIDDEN } else { HINTS_VISIBLE },
+        );
     }
 
     pub(crate) fn reconcile_bottom_hints(&self) {
@@ -414,10 +445,14 @@ impl State {
         else {
             return;
         };
-        // The provider's startup marker is consumed once in native pane state.
-        // Later marked tabs inherit the oldest pane's current visibility.
-        let hidden = anchor.is_suppressed || anchor.title == BOTTOM_HINTS_START_HIDDEN;
         if self.leads_bottom_hints() {
+            // The native background controller survives tab closure and is shared
+            // by attached clients. Only an uninitialized session uses the marker.
+            let Some(hidden) = self.bottom_hints_hidden(
+                anchor.is_suppressed || anchor.title == BOTTOM_HINTS_START_HIDDEN,
+            ) else {
+                return;
+            };
             for tab in self.session.tabs().filter(|tab| {
                 tab.layout()
                     .and_then(|layout| layout.with_bottom_hints_hidden(hidden))
@@ -427,7 +462,10 @@ impl State {
                     if pane.is_suppressed != hidden {
                         self.set_bottom_hints_hidden(tab, pane.id, hidden);
                     }
-                    if pane.title == BOTTOM_HINTS_START_HIDDEN {
+                    if pane.title == BOTTOM_HINTS_START_HIDDEN
+                        && get_pane_info(PaneId::Plugin(pane.id))
+                            .is_some_and(|live| live.title == BOTTOM_HINTS_START_HIDDEN)
+                    {
                         rename_pane_with_id(PaneId::Plugin(pane.id), "bottom_hints");
                     }
                 }

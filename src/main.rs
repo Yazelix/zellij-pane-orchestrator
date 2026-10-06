@@ -31,6 +31,7 @@ fn event_subscriptions(screen_enabled: bool) -> Vec<EventType> {
 struct State {
     session: Session,
     client_id: ClientId,
+    plugin_id: u32,
     reconcile_at: Option<Instant>,
     permissions_granted: bool,
     managed_agent_command_marker: Option<String>,
@@ -46,6 +47,7 @@ impl ZellijPlugin for State {
         set_selectable(false);
         let plugin_ids = get_plugin_ids();
         self.client_id = plugin_ids.client_id;
+        self.plugin_id = plugin_ids.plugin_id;
         self.session = Session::with_bootstrap(plugin_ids.initial_cwd.display().to_string());
         self.managed_agent_command_marker = configuration
             .get("managed_agent_command_marker")
@@ -82,14 +84,19 @@ impl ZellijPlugin for State {
             Event::TabUpdate(tabs) => {
                 // Native tab closure migrates suppressed panes. A hidden hint bar
                 // belongs to its original tab, unlike session background plugins.
-                if self.session.is_leading_client(self.client_id) {
+                if self.permissions_granted
+                    && self.leads_bottom_hints_in_tabs(tabs.iter().map(|tab| tab.tab_id))
+                {
                     for hint in self
                         .session
                         .tabs()
                         .filter(|tab| !tabs.iter().any(|info| info.tab_id == tab.id))
                         .filter_map(|tab| tab.bottom_hints())
                     {
-                        close_pane_with_id(PaneId::Plugin(hint.id));
+                        let id = PaneId::Plugin(hint.id);
+                        rename_pane_with_id(id, "retired_bottom_hints");
+                        show_pane_with_id(id, false, false);
+                        close_pane_with_id(id);
                     }
                 }
                 let joined = self.session.update_tabs(&tabs);

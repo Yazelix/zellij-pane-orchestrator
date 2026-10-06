@@ -490,7 +490,7 @@ mod tests {
     use zellij_tile::prelude::{PaneInfo, PaneManifest, TabInfo};
 
     #[test]
-    fn session_hint_owner_is_stable_across_tab_focus_and_client_departure() {
+    fn startup_hint_anchor_is_stable_across_tab_focus_and_client_departure() {
         let mut session = Session::default();
         let mut infos = tabs(&[(0, 10), (1, 20)]);
         infos[0].other_focused_clients = vec![3];
