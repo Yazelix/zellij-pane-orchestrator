@@ -122,6 +122,9 @@ Yazelix integration commands depend on Yazelix-managed editor/sidebar/workspace 
 `retarget_workspace` accepts an optional `workspace_source` of `explicit` or
 `bootstrap`; callers normally omit it, while coordinators can preserve the
 previous provenance when rolling back a failed multi-step retarget.
+An unnamed native tab containing a managed `yazi_picker` starts with that
+picker's working directory as its bootstrap workspace and its basename as the
+tab label. Home directories use the same rule; explicit tab names are preserved.
 `close_startup_picker_tab` accepts the terminal pane id from `ZELLIJ_PANE_ID`
 and closes its stable tab only while that named picker has no same-tab editor.
 `complete_startup_picker_handoff` closes that picker pane only after an editor

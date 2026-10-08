@@ -44,7 +44,7 @@ use zellij_tile::prelude::{
     focus_pane_with_id, get_focused_pane_info, get_pane_cwd, get_pane_info, get_tab_info,
     go_to_next_tab, go_to_previous_tab, hide_pane_with_id, move_focus,
     move_pane_with_pane_id_in_direction, open_command_pane, open_terminal, pipe_message_to_plugin,
-    rename_pane_with_id, rename_tab, set_pane_borderless, show_pane_with_id,
+    rename_pane_with_id, rename_tab, rename_tab_with_id, set_pane_borderless, show_pane_with_id,
     write_chars_to_pane_id, write_to_pane_id, CommandToRun, Direction, MessageToPlugin, PaneId,
     PipeMessage, PipeSource,
 };
@@ -706,6 +706,26 @@ impl State {
 
 impl State {
     pub(crate) fn recover_workspaces(&mut self) {
+        let pickers = self
+            .session
+            .tabs()
+            .filter_map(|tab| Some((tab.id, tab.unnamed_startup_picker()?.id)))
+            .collect::<Vec<_>>();
+        for (tab_id, picker) in pickers {
+            let Ok(root) = get_pane_cwd(picker) else {
+                continue;
+            };
+            let root = root.display().to_string();
+            let name = tab_name(&root);
+            if let Some(tab) = self.session.tab_mut(tab_id) {
+                tab.name = name.clone();
+                tab.workspace = Some(Workspace {
+                    root,
+                    source: WorkspaceSource::Bootstrap,
+                });
+            }
+            rename_tab_with_id(tab_id as u64, name);
+        }
         let candidates = self
             .session
             .tabs()

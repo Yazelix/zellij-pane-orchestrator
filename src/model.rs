@@ -32,6 +32,7 @@ pub(crate) struct Session {
 
 pub(crate) struct Tab {
     pub(crate) id: usize,
+    pub(crate) name: String,
     pub(crate) position: usize,
     pub(crate) swap_layout: Option<String>,
     pub(crate) floating_panes_visible: bool,
@@ -108,6 +109,7 @@ impl Session {
                 .remove(&info.tab_id)
                 .unwrap_or_else(|| Tab::new(info.tab_id));
             tab.position = info.position;
+            tab.name = info.name.clone();
             tab.swap_layout = info.active_swap_layout_name.clone();
             tab.floating_panes_visible = info.are_floating_panes_visible;
             if info.active {
@@ -230,6 +232,7 @@ impl Tab {
     fn new(id: usize) -> Self {
         Self {
             id,
+            name: String::new(),
             position: 0,
             swap_layout: None,
             floating_panes_visible: false,
@@ -299,6 +302,18 @@ impl Tab {
 
     pub(crate) fn editor(&self) -> Option<ManagedPane> {
         self.managed(EDITOR_TITLE)
+    }
+
+    pub(crate) fn unnamed_startup_picker(&self) -> Option<ManagedPane> {
+        if self.name != format!("Tab #{}", self.id + 1)
+            || self
+                .workspace
+                .as_ref()
+                .is_some_and(|workspace| workspace.source == WorkspaceSource::Explicit)
+        {
+            return None;
+        }
+        self.managed("yazi_picker")
     }
 
     pub(crate) fn sidebar(&self) -> Option<ManagedPane> {
@@ -485,9 +500,9 @@ fn terminal_ids(panes: &[PaneInfo]) -> HashSet<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Session, Tab};
+    use super::{Session, Tab, WorkspaceSource};
     use std::collections::HashMap;
-    use zellij_tile::prelude::{PaneInfo, PaneManifest, TabInfo};
+    use zellij_tile::prelude::{PaneId, PaneInfo, PaneManifest, TabInfo};
 
     #[test]
     fn startup_hint_anchor_is_stable_across_tab_focus_and_client_departure() {
@@ -544,6 +559,35 @@ mod tests {
                 .map(|(position, id)| (*position, vec![pane(*id)]))
                 .collect::<HashMap<_, _>>(),
         }
+    }
+
+    #[test]
+    fn only_unnamed_startup_pickers_need_an_initial_workspace_label() {
+        let mut session = Session::with_bootstrap("/launch/project".into());
+        let mut info = tabs(&[(0, 7)])[0].clone();
+        info.name = "Tab #8".into();
+        session.update_tabs(&[info.clone()]);
+        let mut panes = manifest(&[(0, 10)]);
+        panes.panes.get_mut(&0).unwrap()[0].title = "yazi_picker".into();
+        session.update_panes(panes);
+        assert_eq!(
+            session.tab(7).unwrap().unnamed_startup_picker().unwrap().id,
+            PaneId::Terminal(10)
+        );
+
+        info.name = "my work".into();
+        session.update_tabs(&[info.clone()]);
+        assert!(session.tab(7).unwrap().unnamed_startup_picker().is_none());
+        info.name = "Tab #8".into();
+        session.update_tabs(&[info]);
+        session
+            .tab_mut(7)
+            .unwrap()
+            .workspace
+            .as_mut()
+            .unwrap()
+            .source = WorkspaceSource::Explicit;
+        assert!(session.tab(7).unwrap().unnamed_startup_picker().is_none());
     }
 
     #[test]
