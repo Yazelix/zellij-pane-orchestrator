@@ -33,6 +33,7 @@ pub(crate) struct Session {
 pub(crate) struct Tab {
     pub(crate) id: usize,
     pub(crate) name: String,
+    pub(crate) picker_named: bool,
     pub(crate) position: usize,
     pub(crate) swap_layout: Option<String>,
     pub(crate) floating_panes_visible: bool,
@@ -233,6 +234,7 @@ impl Tab {
         Self {
             id,
             name: String::new(),
+            picker_named: false,
             position: 0,
             swap_layout: None,
             floating_panes_visible: false,
@@ -305,7 +307,8 @@ impl Tab {
     }
 
     pub(crate) fn unnamed_startup_picker(&self) -> Option<ManagedPane> {
-        if self.name != format!("Tab #{}", self.id + 1)
+        if self.picker_named
+            || self.name != format!("Tab #{}", self.id + 1)
             || self
                 .workspace
                 .as_ref()
@@ -588,6 +591,10 @@ mod tests {
             .unwrap()
             .source = WorkspaceSource::Explicit;
         assert!(session.tab(7).unwrap().unnamed_startup_picker().is_none());
+        let tab = session.tab_mut(7).unwrap();
+        tab.workspace.as_mut().unwrap().source = WorkspaceSource::Bootstrap;
+        tab.picker_named = true;
+        assert!(tab.unnamed_startup_picker().is_none());
     }
 
     #[test]

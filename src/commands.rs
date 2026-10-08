@@ -719,6 +719,7 @@ impl State {
             let name = tab_name(&root);
             if let Some(tab) = self.session.tab_mut(tab_id) {
                 tab.name = name.clone();
+                tab.picker_named = true;
                 tab.workspace = Some(Workspace {
                     root,
                     source: WorkspaceSource::Bootstrap,
