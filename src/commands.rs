@@ -350,6 +350,10 @@ impl State {
     fn set_bottom_hints_hidden(&self, tab: &Tab, id: u32, hidden: bool) {
         let id = PaneId::Plugin(id);
         if get_pane_info(id).is_some_and(|pane| pane.is_suppressed != hidden) {
+            // Native unsuppression can relayout the stack before reconciliation.
+            let focused = get_focused_pane_info()
+                .ok()
+                .filter(|(tab_id, pane)| *tab_id == tab.id && *pane != id);
             // Native auto-layout can assign the missing hint slot's borderless style
             // to a work pane. Restore the panes that had frame offsets before hiding.
             let framed = tab
@@ -386,6 +390,9 @@ impl State {
             }
             for id in framed {
                 set_pane_borderless(id, false);
+            }
+            if let Some((_, focused)) = focused {
+                focus_pane_with_id(focused, false, false);
             }
         }
     }
