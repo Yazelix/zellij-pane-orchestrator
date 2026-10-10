@@ -70,9 +70,9 @@ restoration geometry when activated. Native tab client identities elect one
 handler across all tabs for broadcast messages and retirement, including mirrored sessions. Native suppression
 of each hint pane reflects the controller's session choice. Unknown layouts, absent or ambiguous hint
 panes, and legacy agent-layout variants leave the session unchanged.
-Pane snapshots wait for tab metadata or the existing reconciliation timer, preserving
-closing tabs' pane identities. This staging can go when upstream supplies atomic
-pane snapshots keyed by stable tab IDs.
+Pane snapshots wait for tab metadata or the existing reconciliation timer; only
+completed joins drive layouts, preserving closing tabs' identities without feedback.
+This staging can go when upstream supplies atomic snapshots keyed by stable tab IDs.
 When a tab closes, the orchestrator closes that tab's known hint pane: native
 Zellij preserves suppressed background panes by moving them into a surviving
 tab. Retirement removes the hint role before showing and closing the pane,

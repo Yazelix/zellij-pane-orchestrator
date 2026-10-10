@@ -76,10 +76,6 @@ impl ZellijPlugin for State {
 
     fn update(&mut self, event: Event) -> bool {
         self.record_event(&event);
-        let hints_changed = matches!(
-            &event,
-            Event::TabUpdate(_) | Event::PaneUpdate(_) | Event::PermissionRequestResult(_)
-        );
         match event {
             Event::TabUpdate(tabs) => {
                 // Native tab closure migrates suppressed panes. A hidden hint bar
@@ -109,6 +105,9 @@ impl ZellijPlugin for State {
             }
             Event::PermissionRequestResult(status) => {
                 self.permissions_granted = status == PermissionStatus::Granted;
+                if self.permissions_granted {
+                    self.reconcile_bottom_hints();
+                }
             }
             Event::InputReceived => self.screen_input(),
             Event::PaneClosed(pane) => self.pane_closed(pane),
@@ -118,9 +117,6 @@ impl ZellijPlugin for State {
                 self.retry_join();
             }
             _ => {}
-        }
-        if hints_changed && self.permissions_granted {
-            self.reconcile_bottom_hints();
         }
         self.refresh_status();
         self.arm_timer();
@@ -180,6 +176,10 @@ impl State {
         if joined {
             self.reconcile_at = None;
             self.recover_workspaces();
+            // Layout changes must use a coherent tab/pane snapshot.
+            if self.permissions_granted {
+                self.reconcile_bottom_hints();
+            }
         } else {
             self.reconcile_at = Some(Instant::now() + RECONCILE_DELAY);
         }
@@ -194,7 +194,7 @@ impl State {
         }
         self.reconcile_at = None;
         if self.session.retry_join() {
-            self.recover_workspaces();
+            self.join(true);
         }
     }
 }
