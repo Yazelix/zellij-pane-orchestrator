@@ -104,8 +104,8 @@ impl ZellijPlugin for State {
             }
             Event::PaneUpdate(manifest) => {
                 self.observe_manifest_for_exit(&manifest);
-                let joined = self.session.update_panes(manifest);
-                self.join(joined);
+                self.session.update_panes(manifest);
+                self.join(false);
             }
             Event::PermissionRequestResult(status) => {
                 self.permissions_granted = status == PermissionStatus::Granted;
@@ -128,6 +128,9 @@ impl ZellijPlugin for State {
     }
 
     fn pipe(&mut self, message: PipeMessage) -> bool {
+        if matches!(&message.source, PipeSource::Cli(_)) && message.payload.is_none() {
+            return false;
+        }
         self.record_pipe(&message.name);
         match message.name.as_str() {
             "get_active_tab_session_state" => self.get_active_tab_session_state(&message),

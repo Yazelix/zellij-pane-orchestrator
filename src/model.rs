@@ -131,9 +131,9 @@ impl Session {
         }
     }
 
-    pub(crate) fn update_panes(&mut self, manifest: PaneManifest) -> bool {
+    pub(crate) fn update_panes(&mut self, manifest: PaneManifest) {
+        // Pane positions can arrive before their matching stable tab IDs.
         self.pending_manifest = Some(manifest);
-        self.retry_join()
     }
 
     pub(crate) fn retry_join(&mut self) -> bool {
@@ -573,6 +573,7 @@ mod tests {
         let mut panes = manifest(&[(0, 10)]);
         panes.panes.get_mut(&0).unwrap()[0].title = "yazi_picker".into();
         session.update_panes(panes);
+        assert!(session.retry_join());
         assert_eq!(
             session.tab(7).unwrap().unnamed_startup_picker().unwrap().id,
             PaneId::Terminal(10)
@@ -598,11 +599,44 @@ mod tests {
     }
 
     #[test]
+    fn pane_updates_preserve_retiring_tab_identity_until_tab_update() {
+        let mut session = Session::default();
+        session.update_tabs(&tabs(&[(0, 10)]));
+        let hint = PaneInfo {
+            id: 3,
+            is_plugin: true,
+            title: "bottom_hints".into(),
+            ..Default::default()
+        };
+        let mut original = manifest(&[(0, 1)]);
+        original.panes.get_mut(&0).unwrap().push(hint.clone());
+        session.update_panes(original);
+        assert!(session.retry_join());
+
+        let mut replacement = manifest(&[(0, 2)]);
+        replacement.panes.get_mut(&0).unwrap().extend([
+            hint,
+            PaneInfo {
+                id: 4,
+                is_plugin: true,
+                title: "bottom_hints_start_hidden".into(),
+                ..Default::default()
+            },
+        ]);
+        session.update_panes(replacement);
+        assert_eq!(session.tab(10).unwrap().bottom_hints().unwrap().id, 3);
+        assert!(session.update_tabs(&tabs(&[(0, 20)])));
+        assert!(session.tab(10).is_none());
+        assert_eq!(session.tab(20).unwrap().panes[0].id, 2);
+    }
+
+    #[test]
     fn joins_panes_to_stable_tabs_and_rejects_a_stale_position_race() {
         let mut session = Session::with_bootstrap("/home/user".to_string());
         assert!(!session.update_tabs(&tabs(&[(0, 10), (1, 20)])));
         assert!(session.active().is_none());
-        assert!(session.update_panes(manifest(&[(0, 1), (1, 2)])));
+        session.update_panes(manifest(&[(0, 1), (1, 2)]));
+        assert!(session.retry_join());
         assert_eq!(session.active().map(|tab| tab.id), Some(10));
         assert_eq!(
             session.tab(10).unwrap().workspace.as_ref().unwrap().root,
@@ -611,7 +645,8 @@ mod tests {
         assert_eq!(session.tab(10).unwrap().panes[0].id, 1);
         assert_eq!(session.tab(20).unwrap().panes[0].id, 2);
 
-        assert!(!session.update_panes(manifest(&[(0, 2), (1, 1)])));
+        session.update_panes(manifest(&[(0, 2), (1, 1)]));
+        assert!(!session.retry_join());
         assert_eq!(session.tab(10).unwrap().panes[0].id, 1);
         assert_eq!(session.tab(20).unwrap().panes[0].id, 2);
 

@@ -48,8 +48,6 @@ keybinds {
 `toggle_sidebar` applies the matching named tiled swap layout for a terminal or
 tiled plugin pane named `sidebar`. Layout order does not affect selection, and a
 visible floating pane remains visible and focused while the tiled layout changes.
-CLI callers supply a payload (for example `-- toggle`); the closing empty pipe
-message leaves the sidebar unchanged. Payloadless keybindings remain supported.
 
 `toggle_bottom_hints` hides or restores one tiled plugin pane named
 `bottom_hints` in every supported tab of the current session. Layout providers
@@ -72,6 +70,9 @@ restoration geometry when activated. Native tab client identities elect one
 handler across all tabs for broadcast messages and retirement, including mirrored sessions. Native suppression
 of each hint pane reflects the controller's session choice. Unknown layouts, absent or ambiguous hint
 panes, and legacy agent-layout variants leave the session unchanged.
+Pane snapshots wait for tab metadata or the existing reconciliation timer, preserving
+closing tabs' pane identities. This staging can go when upstream supplies atomic
+pane snapshots keyed by stable tab IDs.
 When a tab closes, the orchestrator closes that tab's known hint pane: native
 Zellij preserves suppressed background panes by moving them into a surviving
 tab. Retirement removes the hint role before showing and closing the pane,
@@ -79,8 +80,6 @@ preventing reconciliation from adopting it into the surviving tab. Other
 background panes retain native preservation.
 With a popup visible, native pane geometry settles the tiled hint layout without
 repeated redraws and preserves work columns when tab info reports floating `BASE`.
-CLI callers supply a nonempty payload (for example `-- toggle`); the final
-empty CLI pipe message is ignored so one request toggles once.
 Hiding captures native frame offsets and restores framing on those tiled panes
 after selecting the active hint layout and querying native completion, before
 acknowledging the toggle. This prevents a work pane from retaining the
@@ -88,7 +87,10 @@ missing hint slot's borderless style, while leaving borderless work panes alone.
 
 ## Standalone pipe API
 
-These commands are intended to work without Yazelix runtime paths:
+These commands are intended to work without Yazelix runtime paths. CLI callers
+supply a payload (for example `-- toggle`, or `-- ""` for a query); the final
+payloadless CLI message is ignored so each request runs and replies once.
+Payloadless keybindings remain supported.
 
 - `move_focus_left_or_tab`
 - `move_focus_right_or_tab`

@@ -274,9 +274,6 @@ impl State {
     }
 
     pub(crate) fn toggle_sidebar(&self, message: &PipeMessage) {
-        if matches!(&message.source, PipeSource::Cli(_)) && message.payload.is_none() {
-            return;
-        }
         let Some(tab) = self.ready(message) else {
             return;
         };
@@ -305,10 +302,7 @@ impl State {
     }
 
     pub(crate) fn toggle_bottom_hints(&self, message: &PipeMessage) {
-        // Alias pipes reach every client instance, plus an empty CLI EOF message.
-        if matches!(&message.source, PipeSource::Cli(_)) && message.payload.is_none() {
-            return;
-        }
+        // Alias pipes reach every client instance.
         if !self.leads_bottom_hints() {
             return;
         }
