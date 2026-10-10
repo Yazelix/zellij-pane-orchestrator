@@ -48,6 +48,8 @@ keybinds {
 `toggle_sidebar` applies the matching named tiled swap layout for a terminal or
 tiled plugin pane named `sidebar`. Layout order does not affect selection, and a
 visible floating pane remains visible and focused while the tiled layout changes.
+CLI callers supply a payload (for example `-- toggle`); the closing empty pipe
+message leaves the sidebar unchanged. Payloadless keybindings remain supported.
 
 `toggle_bottom_hints` hides or restores one tiled plugin pane named
 `bottom_hints` in every supported tab of the current session. Layout providers

@@ -274,6 +274,9 @@ impl State {
     }
 
     pub(crate) fn toggle_sidebar(&self, message: &PipeMessage) {
+        if matches!(&message.source, PipeSource::Cli(_)) && message.payload.is_none() {
+            return;
+        }
         let Some(tab) = self.ready(message) else {
             return;
         };
