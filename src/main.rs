@@ -146,10 +146,10 @@ impl ZellijPlugin for State {
                 self.move_vertical_focus(&message, commands::VerticalDirection::Down)
             }
             "move_focus_up" => self.move_vertical_focus(&message, commands::VerticalDirection::Up),
-            "move_pane_down" => {
-                self.move_vertical_pane(&message, commands::VerticalDirection::Down)
-            }
-            "move_pane_up" => self.move_vertical_pane(&message, commands::VerticalDirection::Up),
+            "move_pane_down" => self.move_pane(&message, commands::PaneMoveDirection::Down),
+            "move_pane_up" => self.move_pane(&message, commands::PaneMoveDirection::Up),
+            "move_pane_left" => self.move_pane(&message, commands::PaneMoveDirection::Left),
+            "move_pane_right" => self.move_pane(&message, commands::PaneMoveDirection::Right),
             "next_family" | "previous_family" => self.switch_layout_family(&message),
             "content_layout_target" => self.content_layout_target(&message),
             "toggle_sidebar" => self.toggle_sidebar(&message),

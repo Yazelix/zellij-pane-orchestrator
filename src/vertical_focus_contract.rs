@@ -11,16 +11,12 @@ pub enum VerticalFocusPlan {
     MissingFocusedPane,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum VerticalMovePlan {
-    MovePane {
-        pane_index: usize,
-        direction: VerticalDirection,
-        repetitions: usize,
-        expected_pane_order: Vec<usize>,
-    },
-    PreservePanes,
-    MissingFocusedPane,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaneMoveDirection {
+    Up,
+    Down,
+    Left,
+    Right,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,32 +36,49 @@ fn work_pane_cycle(
         .iter()
         .enumerate()
         .filter(|(_, pane)| pane.is_work_pane)
-        .filter(|(_, pane)| {
-            focused.is_none_or(|current| {
-                current.pane_x.max(pane.pane_x)
-                    < current
-                        .pane_x
-                        .saturating_add(current.pane_columns)
-                        .min(pane.pane_x.saturating_add(pane.pane_columns))
-            })
-        })
+        .filter(|(_, pane)| focused.is_none_or(|current| share_column(current, pane)))
         .map(|(index, pane)| (index, pane.pane_y))
         .collect::<Vec<_>>();
     cycle.sort_by_key(|(_, pane_y)| *pane_y);
     cycle
 }
 
-pub fn vertical_work_pane_order(
-    panes: &[VerticalPaneSnapshot],
-    focused_index: usize,
-) -> Vec<usize> {
-    work_pane_cycle(panes, panes.get(focused_index))
+fn share_column(left: &VerticalPaneSnapshot, right: &VerticalPaneSnapshot) -> bool {
+    left.pane_x.max(right.pane_x)
+        < left
+            .pane_x
+            .saturating_add(left.pane_columns)
+            .min(right.pane_x.saturating_add(right.pane_columns))
+}
+
+/// Work-pane indices grouped into columns from left to right, each top to bottom.
+pub fn work_pane_columns(panes: &[VerticalPaneSnapshot]) -> Vec<Vec<usize>> {
+    let mut work = panes
+        .iter()
+        .enumerate()
+        .filter(|(_, pane)| pane.is_work_pane)
+        .collect::<Vec<_>>();
+    work.sort_by_key(|(_, pane)| (pane.pane_x, pane.pane_y));
+    let mut columns: Vec<(&VerticalPaneSnapshot, Vec<(usize, usize)>)> = Vec::new();
+    for (index, pane) in work {
+        match columns
+            .iter_mut()
+            .find(|(first, _)| share_column(first, pane))
+        {
+            Some((_, column)) => column.push((index, pane.pane_y)),
+            None => columns.push((pane, vec![(index, pane.pane_y)])),
+        }
+    }
+    columns
         .into_iter()
-        .map(|(index, _)| index)
+        .map(|(_, mut column)| {
+            column.sort_by_key(|(_, pane_y)| *pane_y);
+            column.into_iter().map(|(index, _)| index).collect()
+        })
         .collect()
 }
 
-pub fn resolve_vertical_move_step(
+fn resolve_vertical_move_step(
     position: usize,
     pane_count: usize,
     direction: VerticalDirection,
@@ -123,52 +136,62 @@ pub fn resolve_vertical_focus(
     VerticalFocusPlan::FocusPane(cycle[target].0)
 }
 
-pub fn resolve_vertical_move(
-    panes: &[VerticalPaneSnapshot],
-    direction: VerticalDirection,
-    visible_popup_is_open: bool,
-) -> VerticalMovePlan {
-    if visible_popup_is_open {
-        return VerticalMovePlan::PreservePanes;
-    }
-
-    let Some((focused_index, focused)) = panes
-        .iter()
-        .enumerate()
-        .find(|(_, pane)| pane.is_work_pane && pane.is_focused)
-    else {
-        return VerticalMovePlan::MissingFocusedPane;
+/// Applies one requested move to projected `columns` and returns the native
+/// single-step moves that reproduce it; `None` means `pane` is not a work pane.
+/// Zellij swaps a pane with the most recently active pane beside it, so a
+/// cross-column move preserves pane order only beside a single-pane left column.
+pub fn resolve_pane_move_step<T: Copy + PartialEq>(
+    columns: &mut [Vec<T>],
+    pane: T,
+    direction: PaneMoveDirection,
+) -> Option<Vec<(T, PaneMoveDirection)>> {
+    let column = columns.iter().position(|column| column.contains(&pane))?;
+    let position = columns[column].iter().position(|id| *id == pane)?;
+    let moves = match direction {
+        PaneMoveDirection::Up | PaneMoveDirection::Down => {
+            let vertical = if direction == PaneMoveDirection::Up {
+                VerticalDirection::Up
+            } else {
+                VerticalDirection::Down
+            };
+            let Some((target, native, repetitions)) =
+                resolve_vertical_move_step(position, columns[column].len(), vertical)
+            else {
+                return Some(Vec::new());
+            };
+            columns[column].remove(position);
+            columns[column].insert(target, pane);
+            let native = match native {
+                VerticalDirection::Up => PaneMoveDirection::Up,
+                VerticalDirection::Down => PaneMoveDirection::Down,
+            };
+            vec![(pane, native); repetitions]
+        }
+        PaneMoveDirection::Left if column > 0 && columns[column - 1].len() == 1 => {
+            let left = std::mem::replace(&mut columns[column - 1][0], pane);
+            columns[column].remove(position);
+            columns[column].insert(0, left);
+            let mut moves = vec![(pane, PaneMoveDirection::Up); position];
+            moves.push((pane, PaneMoveDirection::Left));
+            moves
+        }
+        PaneMoveDirection::Right if columns[column].len() == 1 && column + 1 < columns.len() => {
+            let right = std::mem::replace(&mut columns[column + 1][0], pane);
+            columns[column][0] = right;
+            vec![(right, PaneMoveDirection::Left)]
+        }
+        PaneMoveDirection::Left | PaneMoveDirection::Right => Vec::new(),
     };
-    let cycle = work_pane_cycle(panes, Some(focused));
-    if cycle.len() < 2 {
-        return VerticalMovePlan::PreservePanes;
-    }
-    let Some(position) = cycle.iter().position(|(index, _)| *index == focused_index) else {
-        return VerticalMovePlan::MissingFocusedPane;
-    };
-    let Some((target_position, native_direction, repetitions)) =
-        resolve_vertical_move_step(position, cycle.len(), direction)
-    else {
-        return VerticalMovePlan::PreservePanes;
-    };
-    let mut expected_pane_order = cycle.iter().map(|(index, _)| *index).collect::<Vec<_>>();
-    let focused_index = expected_pane_order.remove(position);
-    expected_pane_order.insert(target_position, focused_index);
-
-    VerticalMovePlan::MovePane {
-        pane_index: focused_index,
-        direction: native_direction,
-        repetitions,
-        expected_pane_order,
-    }
+    Some(moves)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        resolve_vertical_focus, resolve_vertical_move, resolve_vertical_move_step,
-        VerticalDirection, VerticalFocusPlan, VerticalMovePlan, VerticalPaneSnapshot,
+        resolve_pane_move_step, resolve_vertical_focus, work_pane_columns, PaneMoveDirection,
+        VerticalDirection, VerticalFocusPlan, VerticalPaneSnapshot,
     };
+    use PaneMoveDirection::{Down, Left, Right, Up};
     fn pane(
         is_work_pane: bool,
         is_focused: bool,
@@ -237,59 +260,69 @@ mod tests {
 
     #[test]
     fn moves_work_panes_circularly_without_crossing_ui_panes() {
-        let top_focused = [
+        let stacked = [
             pane(false, false, 0, 0, 24),
             pane(true, true, 24, 1, 80),
             pane(true, false, 24, 18, 80),
             pane(true, false, 24, 19, 80),
             pane(false, false, 0, 20, 120),
         ];
+        let mut columns = work_pane_columns(&stacked);
+        assert_eq!(columns, vec![vec![1, 2, 3]]);
         assert_eq!(
-            resolve_vertical_move(&top_focused, VerticalDirection::Up, false),
-            VerticalMovePlan::MovePane {
-                pane_index: 1,
-                direction: VerticalDirection::Down,
-                repetitions: 2,
-                expected_pane_order: vec![2, 3, 1],
-            }
+            resolve_pane_move_step(&mut columns, 1, Up),
+            Some(vec![(1, Down), (1, Down)])
         );
-
-        let bottom_focused = [
-            pane(false, false, 0, 0, 24),
-            pane(true, false, 24, 1, 80),
-            pane(true, false, 24, 2, 80),
-            pane(true, true, 24, 19, 80),
-            pane(false, false, 0, 20, 120),
-        ];
+        assert_eq!(columns, vec![vec![2, 3, 1]]);
+        // Consecutive moves apply to the projection before a pane update arrives.
         assert_eq!(
-            resolve_vertical_move(&bottom_focused, VerticalDirection::Down, false),
-            VerticalMovePlan::MovePane {
-                pane_index: 3,
-                direction: VerticalDirection::Up,
-                repetitions: 2,
-                expected_pane_order: vec![3, 1, 2],
-            }
+            resolve_pane_move_step(&mut columns, 1, Down),
+            Some(vec![(1, Up), (1, Up)])
         );
+        assert_eq!(columns, vec![vec![1, 2, 3]]);
         assert_eq!(
-            resolve_vertical_move(&bottom_focused, VerticalDirection::Up, false),
-            VerticalMovePlan::MovePane {
-                pane_index: 3,
-                direction: VerticalDirection::Up,
-                repetitions: 1,
-                expected_pane_order: vec![1, 3, 2],
-            }
+            resolve_pane_move_step(&mut columns, 2, Up),
+            Some(vec![(2, Up)])
         );
-        assert_eq!(
-            resolve_vertical_move(&bottom_focused, VerticalDirection::Up, true),
-            VerticalMovePlan::PreservePanes
-        );
+        assert_eq!(columns, vec![vec![2, 1, 3]]);
+        for direction in [Left, Right] {
+            assert_eq!(
+                resolve_pane_move_step(&mut columns, 2, direction),
+                Some(vec![])
+            );
+        }
+        assert_eq!(resolve_pane_move_step(&mut columns, 0, Up), None);
     }
 
     #[test]
-    fn consecutive_moves_do_not_need_an_intermediate_pane_update() {
+    fn crosses_columns_preserving_the_order_of_other_panes() {
+        let split = [
+            pane(false, false, 0, 0, 24),
+            pane(true, false, 24, 1, 40),
+            pane(true, false, 64, 1, 40),
+            pane(true, false, 64, 2, 40),
+            pane(true, true, 64, 3, 40),
+            pane(false, false, 104, 1, 16),
+        ];
+        let mut columns = work_pane_columns(&split);
+        assert_eq!(columns, vec![vec![1], vec![2, 3, 4]]);
         assert_eq!(
-            resolve_vertical_move_step(0, 3, VerticalDirection::Down),
-            Some((1, VerticalDirection::Down, 1))
+            resolve_pane_move_step(&mut columns, 4, Left),
+            Some(vec![(4, Up), (4, Up), (4, Left)])
         );
+        assert_eq!(columns, vec![vec![4], vec![1, 2, 3]]);
+        assert_eq!(resolve_pane_move_step(&mut columns, 4, Left), Some(vec![]));
+        assert_eq!(
+            resolve_pane_move_step(&mut columns, 4, Right),
+            Some(vec![(1, Left)])
+        );
+        assert_eq!(columns, vec![vec![1], vec![4, 2, 3]]);
+        assert_eq!(resolve_pane_move_step(&mut columns, 4, Right), Some(vec![]));
+
+        // Zellij would swap with an arbitrary pane of a multi-pane left column.
+        let mut columns = vec![vec![1, 2], vec![3]];
+        assert_eq!(resolve_pane_move_step(&mut columns, 3, Left), Some(vec![]));
+        assert_eq!(resolve_pane_move_step(&mut columns, 1, Right), Some(vec![]));
+        assert_eq!(columns, vec![vec![1, 2], vec![3]]);
     }
 }

@@ -12,7 +12,7 @@ use yazelix_zellij_pane_orchestrator::pane_contract::{select_managed_pane_index,
 use yazelix_zellij_pane_orchestrator::sidebar_contract::is_managed_sidebar_plugin;
 use yazelix_zellij_pane_orchestrator::tab_identity_contract::position_pane_identity_conflicts_with_cached_tabs;
 use yazelix_zellij_pane_orchestrator::vertical_focus_contract::{
-    vertical_work_pane_order, VerticalPaneSnapshot,
+    work_pane_columns, VerticalPaneSnapshot,
 };
 use zellij_tile::prelude::{ClientId, PaneId, PaneInfo, PaneManifest, TabInfo};
 
@@ -83,7 +83,7 @@ pub(crate) struct ManagedPane {
 
 pub(crate) struct ProjectedMove {
     pub(crate) pane_id: PaneId,
-    pub(crate) order: Vec<PaneId>,
+    pub(crate) columns: Vec<Vec<PaneId>>,
 }
 
 impl Session {
@@ -467,27 +467,34 @@ impl Tab {
             .collect()
     }
 
+    pub(crate) fn work_pane_columns(&self) -> Vec<Vec<PaneId>> {
+        let terminals = self.terminal_panes();
+        work_pane_columns(&self.vertical_snapshots(&terminals))
+            .into_iter()
+            .map(|column| {
+                column
+                    .into_iter()
+                    .map(|index| PaneId::Terminal(terminals[index].id))
+                    .collect()
+            })
+            .collect()
+    }
+
+    // Native moves swap panes, so intermediate updates keep the column shape and
+    // pane set; a layout switch or pane change abandons the projection.
     fn reconcile_projected_move(&mut self) {
         let Some(projected) = self.projected_move.as_ref() else {
             return;
         };
-        let terminals = self.terminal_panes();
-        let Some(index) = terminals
-            .iter()
-            .position(|pane| PaneId::Terminal(pane.id) == projected.pane_id)
-        else {
-            self.projected_move = None;
-            return;
-        };
-        let snapshots = self.vertical_snapshots(&terminals);
-        let order = vertical_work_pane_order(&snapshots, index)
-            .into_iter()
-            .filter_map(|index| terminals.get(index))
-            .map(|pane| PaneId::Terminal(pane.id))
-            .collect::<Vec<_>>();
-        let same_panes = order.len() == projected.order.len()
-            && order.iter().all(|pane| projected.order.contains(pane));
-        if !same_panes || order == projected.order {
+        let columns = self.work_pane_columns();
+        let shape = |columns: &[Vec<PaneId>]| columns.iter().map(Vec::len).collect::<Vec<_>>();
+        let pending = shape(&columns) == shape(&projected.columns)
+            && columns
+                .iter()
+                .flatten()
+                .all(|pane| projected.columns.iter().any(|column| column.contains(pane)))
+            && columns != projected.columns;
+        if !pending {
             self.projected_move = None;
         }
     }

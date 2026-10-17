@@ -32,8 +32,7 @@ use yazelix_zellij_pane_orchestrator::transient_pane_contract::{
     select_transient_pane, TransientPaneSnapshot,
 };
 use yazelix_zellij_pane_orchestrator::vertical_focus_contract::{
-    resolve_vertical_focus, resolve_vertical_move, resolve_vertical_move_step, VerticalFocusPlan,
-    VerticalMovePlan,
+    resolve_pane_move_step, resolve_vertical_focus, VerticalFocusPlan,
 };
 use yazelix_zellij_pane_orchestrator::workspace_popup_contract::{
     workspace_popup_destination_id, workspace_popup_payload,
@@ -56,7 +55,9 @@ use crate::model::{
 use crate::State;
 
 pub(crate) use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::HorizontalDirection;
-pub(crate) use yazelix_zellij_pane_orchestrator::vertical_focus_contract::VerticalDirection;
+pub(crate) use yazelix_zellij_pane_orchestrator::vertical_focus_contract::{
+    PaneMoveDirection, VerticalDirection,
+};
 
 const DENIED: &str = "permissions_denied";
 const FOCUSED_AGENT: &str = "focused_agent";
@@ -228,11 +229,7 @@ impl State {
         }
     }
 
-    pub(crate) fn move_vertical_pane(
-        &mut self,
-        message: &PipeMessage,
-        direction: VerticalDirection,
-    ) {
+    pub(crate) fn move_pane(&mut self, message: &PipeMessage, direction: PaneMoveDirection) {
         let Some(tab_id) = self.ready(message).map(|tab| tab.id) else {
             return;
         };
@@ -240,14 +237,23 @@ impl State {
         let result = match self
             .session
             .tab_mut(tab_id)
-            .map(|tab| vertical_move(tab, direction, marker))
+            .and_then(|tab| pane_moves(tab, direction, marker))
         {
-            Some(VerticalMoveResult::Dispatch(pane, direction, repetitions)) => {
-                dispatch_vertical_move(pane, direction, repetitions);
+            Some(moves) => {
+                for (pane, direction) in moves {
+                    move_pane_with_pane_id_in_direction(
+                        pane,
+                        match direction {
+                            PaneMoveDirection::Up => Direction::Up,
+                            PaneMoveDirection::Down => Direction::Down,
+                            PaneMoveDirection::Left => Direction::Left,
+                            PaneMoveDirection::Right => Direction::Right,
+                        },
+                    );
+                }
                 OK
             }
-            Some(VerticalMoveResult::Preserve) => OK,
-            Some(VerticalMoveResult::Missing) | None => MISSING,
+            None => MISSING,
         };
         self.respond(message, result);
     }
@@ -1140,74 +1146,28 @@ fn visible_popup(tab: &Tab, managed_agent_command_marker: Option<&str>) -> bool 
     })
 }
 
-enum VerticalMoveResult {
-    Dispatch(PaneId, VerticalDirection, usize),
-    Preserve,
-    Missing,
-}
-
-fn vertical_move(
+fn pane_moves(
     tab: &mut Tab,
-    direction: VerticalDirection,
+    direction: PaneMoveDirection,
     managed_agent_command_marker: Option<&str>,
-) -> VerticalMoveResult {
+) -> Option<Vec<(PaneId, PaneMoveDirection)>> {
     if visible_popup(tab, managed_agent_command_marker) {
-        return VerticalMoveResult::Preserve;
+        return Some(Vec::new());
     }
     if let Some(projected) = tab.projected_move.as_mut() {
-        let Some(position) = projected
-            .order
-            .iter()
-            .position(|id| *id == projected.pane_id)
-        else {
-            return VerticalMoveResult::Missing;
-        };
-        let Some((target, native_direction, repetitions)) =
-            resolve_vertical_move_step(position, projected.order.len(), direction)
-        else {
-            return VerticalMoveResult::Preserve;
-        };
-        let pane = projected.order.remove(position);
-        projected.order.insert(target, pane);
-        return VerticalMoveResult::Dispatch(projected.pane_id, native_direction, repetitions);
+        return resolve_pane_move_step(&mut projected.columns, projected.pane_id, direction);
     }
-
-    let terminals = tab.terminal_panes();
-    let panes = tab.vertical_snapshots(&terminals);
-    let (pane_index, direction, repetitions, expected_pane_order) =
-        match resolve_vertical_move(&panes, direction, false) {
-            VerticalMovePlan::MovePane {
-                pane_index,
-                direction,
-                repetitions,
-                expected_pane_order,
-            } => (pane_index, direction, repetitions, expected_pane_order),
-            VerticalMovePlan::PreservePanes => return VerticalMoveResult::Preserve,
-            VerticalMovePlan::MissingFocusedPane => return VerticalMoveResult::Missing,
-        };
-    let Some(target) = terminals.get(pane_index) else {
-        return VerticalMoveResult::Missing;
-    };
-    let pane_id = PaneId::Terminal(target.id);
-    let order = expected_pane_order
-        .iter()
-        .map(|index| terminals.get(*index).map(|pane| PaneId::Terminal(pane.id)))
-        .collect::<Option<Vec<_>>>();
-    let Some(order) = order else {
-        return VerticalMoveResult::Missing;
-    };
-    tab.projected_move = Some(ProjectedMove { pane_id, order });
-    VerticalMoveResult::Dispatch(pane_id, direction, repetitions)
-}
-
-fn dispatch_vertical_move(pane: PaneId, direction: VerticalDirection, repetitions: usize) {
-    let direction = match direction {
-        VerticalDirection::Up => Direction::Up,
-        VerticalDirection::Down => Direction::Down,
-    };
-    for _ in 0..repetitions {
-        move_pane_with_pane_id_in_direction(pane, direction);
+    let mut columns = tab.work_pane_columns();
+    let pane_id = tab
+        .terminals()
+        .filter(|pane| pane.is_focused)
+        .map(|pane| PaneId::Terminal(pane.id))
+        .find(|pane| columns.iter().flatten().any(|work| work == pane))?;
+    let moves = resolve_pane_move_step(&mut columns, pane_id, direction)?;
+    if !moves.is_empty() {
+        tab.projected_move = Some(ProjectedMove { pane_id, columns });
     }
+    Some(moves)
 }
 
 pub(crate) fn session_state(tab: &Tab) -> ActiveTabSessionStateV2 {
