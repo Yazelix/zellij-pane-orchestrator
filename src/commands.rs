@@ -925,7 +925,8 @@ impl State {
         let Some(tab) = self.ready(message) else {
             return;
         };
-        // Directional and stacked panes reuse native placement with the workspace root as cwd.
+        // Directional panes reuse native split placement with the workspace root as cwd.
+        // Stacked panes are not offered: Zellij's plugin API drops NewStackedPane's command.
         let direction = match message.payload.as_deref().map(str::trim).unwrap_or("") {
             "" => {
                 let Some(workspace) = tab.workspace.as_ref() else {
@@ -936,9 +937,8 @@ impl State {
                 self.respond(message, OK);
                 return;
             }
-            "down" => Some(Direction::Down),
-            "right" => Some(Direction::Right),
-            "stacked" => None,
+            "down" => Direction::Down,
+            "right" => Direction::Right,
             _ => {
                 self.respond(message, INVALID);
                 return;
@@ -958,24 +958,15 @@ impl State {
             }
             (None, _) => None,
         };
-        let action = match direction {
-            Some(direction) => Action::NewTiledPane {
-                direction: Some(direction),
-                command,
-                pane_name: None,
-                near_current_pane: false,
-                no_focus: false,
-                borderless: None,
-                border_style: None,
-                tab_id: None,
-            },
-            None => Action::NewStackedPane {
-                command,
-                pane_name: None,
-                near_current_pane: false,
-                no_focus: false,
-                tab_id: None,
-            },
+        let action = Action::NewTiledPane {
+            direction: Some(direction),
+            command,
+            pane_name: None,
+            near_current_pane: false,
+            no_focus: false,
+            borderless: None,
+            border_style: None,
+            tab_id: None,
         };
         run_action(action, BTreeMap::new());
         self.respond(message, OK);

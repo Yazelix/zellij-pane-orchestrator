@@ -134,8 +134,9 @@ and closes its stable tab only while that named picker has no same-tab editor.
 `complete_startup_picker_handoff` closes that picker pane only after an editor
 is visible in the same stable tab.
 `open_workspace_terminal` opens a shell at the active tab's workspace root. An
-empty payload uses the plugin terminal route. `down`, `right` and `stacked`
-reuse Zellij's native split and stacked placement through `RunActionsAsUser`.
+empty payload uses the plugin terminal route. `down` and `right` reuse
+Zellij's native split placement through `RunActionsAsUser`; Zellij's plugin
+API drops a stacked pane's command, so no stacked payload is offered.
 They start the configured `default_shell`, which must match Zellij's
 `default_shell`, and reply `missing` when it is unset. Without a workspace they
 fall back to the focused pane's directory. Other payloads reply
