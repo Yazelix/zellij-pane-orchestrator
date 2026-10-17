@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use yazelix_zellij_pane_orchestrator::horizontal_focus_contract::{
@@ -12,7 +13,7 @@ use yazelix_zellij_pane_orchestrator::pane_contract::{select_managed_pane_index,
 use yazelix_zellij_pane_orchestrator::sidebar_contract::is_managed_sidebar_plugin;
 use yazelix_zellij_pane_orchestrator::tab_identity_contract::position_pane_identity_conflicts_with_cached_tabs;
 use yazelix_zellij_pane_orchestrator::vertical_focus_contract::{
-    work_pane_columns, VerticalPaneSnapshot,
+    reconcile_projection, work_pane_columns, VerticalPaneSnapshot,
 };
 use zellij_tile::prelude::{ClientId, PaneId, PaneInfo, PaneManifest, TabInfo};
 
@@ -81,10 +82,17 @@ pub(crate) struct ManagedPane {
     pub(crate) columns: usize,
 }
 
+/// Expected work-pane columns from the last observed state through each
+/// dispatched native move.
 pub(crate) struct ProjectedMove {
     pub(crate) pane_id: PaneId,
-    pub(crate) columns: Vec<Vec<PaneId>>,
+    pub(crate) states: Vec<Vec<Vec<PaneId>>>,
+    pub(crate) dispatched_at: Instant,
 }
+
+/// After this long without a new dispatch, every queued native move has had
+/// time to reach the observed pane state.
+const MOVE_SETTLE: Duration = Duration::from_millis(500);
 
 impl Session {
     pub(crate) fn with_bootstrap(root: String) -> Self {
@@ -459,17 +467,48 @@ impl Tab {
                 ) == HorizontalPaneRole::Other
                     && !pane.is_floating
                     && !pane.is_suppressed,
+                is_tiled: !pane.is_floating && !pane.is_suppressed,
                 is_focused: pane.is_focused,
                 pane_x: pane.pane_x,
                 pane_y: pane.pane_y,
                 pane_columns: pane.pane_columns,
+                pane_rows: pane.pane_rows,
             })
             .collect()
     }
 
-    pub(crate) fn work_pane_columns(&self) -> Vec<Vec<PaneId>> {
+    pub(crate) fn focused_work_pane(&self) -> Option<PaneId> {
         let terminals = self.terminal_panes();
-        work_pane_columns(&self.vertical_snapshots(&terminals))
+        self.vertical_snapshots(&terminals)
+            .iter()
+            .zip(&terminals)
+            .find(|(pane, _)| pane.is_work_pane && pane.is_focused)
+            .map(|(_, pane)| PaneId::Terminal(pane.id))
+    }
+
+    pub(crate) fn work_pane_columns(&self, pane: PaneId) -> Option<Vec<Vec<PaneId>>> {
+        let terminals = self.terminal_panes();
+        let index = terminals
+            .iter()
+            .position(|terminal| PaneId::Terminal(terminal.id) == pane)?;
+        // Plugins and held exited terminals follow the live terminals, so
+        // indices still name terminals.
+        let mut snapshots = self.vertical_snapshots(&terminals);
+        snapshots.extend(
+            self.panes
+                .iter()
+                .filter(|pane| pane.is_plugin || pane.exited)
+                .map(|pane| VerticalPaneSnapshot {
+                    is_work_pane: false,
+                    is_tiled: !pane.is_floating && !pane.is_suppressed,
+                    is_focused: pane.is_focused,
+                    pane_x: pane.pane_x,
+                    pane_y: pane.pane_y,
+                    pane_columns: pane.pane_columns,
+                    pane_rows: pane.pane_rows,
+                }),
+        );
+        let columns = work_pane_columns(&snapshots, index)
             .into_iter()
             .map(|column| {
                 column
@@ -477,23 +516,30 @@ impl Tab {
                     .map(|index| PaneId::Terminal(terminals[index].id))
                     .collect()
             })
-            .collect()
+            .collect();
+        Some(columns)
     }
 
-    // Native moves swap panes, so intermediate updates keep the column shape and
-    // pane set; a layout switch or pane change abandons the projection.
     fn reconcile_projected_move(&mut self) {
-        let Some(projected) = self.projected_move.as_ref() else {
+        let Some(pane) = self
+            .projected_move
+            .as_ref()
+            .map(|projected| projected.pane_id)
+        else {
             return;
         };
-        let columns = self.work_pane_columns();
-        let shape = |columns: &[Vec<PaneId>]| columns.iter().map(Vec::len).collect::<Vec<_>>();
-        let pending = shape(&columns) == shape(&projected.columns)
-            && columns
-                .iter()
-                .flatten()
-                .all(|pane| projected.columns.iter().any(|column| column.contains(pane)))
-            && columns != projected.columns;
+        // Moves keep the moved pane focused; focusing another pane ends them.
+        let observed = self
+            .work_pane_columns(pane)
+            .filter(|_| self.focused_work_pane() == Some(pane));
+        let pending = match (observed, self.projected_move.as_mut()) {
+            (Some(observed), Some(projected)) => reconcile_projection(
+                &mut projected.states,
+                &observed,
+                projected.dispatched_at.elapsed() >= MOVE_SETTLE,
+            ),
+            _ => false,
+        };
         if !pending {
             self.projected_move = None;
         }

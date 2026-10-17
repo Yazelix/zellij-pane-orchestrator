@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::thread::sleep;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use yazelix_zellij_pane_orchestrator::active_tab_session_state::{
@@ -32,7 +32,7 @@ use yazelix_zellij_pane_orchestrator::transient_pane_contract::{
     select_transient_pane, TransientPaneSnapshot,
 };
 use yazelix_zellij_pane_orchestrator::vertical_focus_contract::{
-    resolve_pane_move_step, resolve_vertical_focus, VerticalFocusPlan,
+    project_pane_move, resolve_vertical_focus, VerticalFocusPlan,
 };
 use yazelix_zellij_pane_orchestrator::workspace_popup_contract::{
     workspace_popup_destination_id, workspace_popup_payload,
@@ -1155,17 +1155,21 @@ fn pane_moves(
         return Some(Vec::new());
     }
     if let Some(projected) = tab.projected_move.as_mut() {
-        return resolve_pane_move_step(&mut projected.columns, projected.pane_id, direction);
+        let moves = project_pane_move(&mut projected.states, projected.pane_id, direction);
+        if moves.as_ref().is_some_and(|moves| !moves.is_empty()) {
+            projected.dispatched_at = Instant::now();
+        }
+        return moves;
     }
-    let mut columns = tab.work_pane_columns();
-    let pane_id = tab
-        .terminals()
-        .filter(|pane| pane.is_focused)
-        .map(|pane| PaneId::Terminal(pane.id))
-        .find(|pane| columns.iter().flatten().any(|work| work == pane))?;
-    let moves = resolve_pane_move_step(&mut columns, pane_id, direction)?;
+    let pane_id = tab.focused_work_pane()?;
+    let mut states = vec![tab.work_pane_columns(pane_id)?];
+    let moves = project_pane_move(&mut states, pane_id, direction)?;
     if !moves.is_empty() {
-        tab.projected_move = Some(ProjectedMove { pane_id, columns });
+        tab.projected_move = Some(ProjectedMove {
+            pane_id,
+            states,
+            dispatched_at: Instant::now(),
+        });
     }
     Some(moves)
 }

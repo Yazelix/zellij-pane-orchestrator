@@ -99,8 +99,10 @@ Payloadless keybindings remain supported.
 - `move_pane_down`
 - `move_pane_up`
 - `move_pane_left` / `move_pane_right` (moves the focused work pane into the
-  neighboring column beside a single-pane left column, preserving the order of
-  other panes; otherwise a no-op)
+  neighboring column, preserving the order of other panes, when the left column
+  is one pane flush against the right column and spanning its height, and no
+  other tiled pane overlaps the two columns except rows spanning both;
+  otherwise a no-op)
 - `next_family`
 - `previous_family`
 - `content_layout_target` (returns the exact next named swap layout to a CLI
