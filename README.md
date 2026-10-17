@@ -133,6 +133,13 @@ tab label. Home directories use the same rule; explicit tab names are preserved.
 and closes its stable tab only while that named picker has no same-tab editor.
 `complete_startup_picker_handoff` closes that picker pane only after an editor
 is visible in the same stable tab.
+`open_workspace_terminal` opens a shell at the active tab's workspace root. An
+empty payload uses the plugin terminal route. `down`, `right` and `stacked`
+reuse Zellij's native split and stacked placement through `RunActionsAsUser`.
+They start the configured `default_shell`, which must match Zellij's
+`default_shell`, and reply `missing` when it is unset. Without a workspace they
+fall back to the focused pane's directory. Other payloads reply
+`invalid_payload`.
 `toggle_workspace_popup` requires a configured `popup_plugin_url`, accepts a
 popup id as its payload, and forwards that id with the active tab's canonical
 workspace root to the loaded popup instance matching that URL.

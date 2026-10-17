@@ -39,14 +39,15 @@ use yazelix_zellij_pane_orchestrator::workspace_popup_contract::{
     workspace_popup_destination_id, workspace_popup_payload,
 };
 use yazelix_zellij_pane_orchestrator::workspace_recovery_contract::recovered_workspace_root;
+use zellij_tile::prelude::actions::{Action, RunCommandAction};
 use zellij_tile::prelude::{
     apply_tiled_swap_layout, cli_pipe_output, close_pane_with_id, close_tab_with_id,
     focus_pane_with_id, get_focused_pane_info, get_pane_cwd, get_pane_info, get_tab_info,
     go_to_next_tab, go_to_previous_tab, hide_pane_with_id, move_focus,
     move_pane_with_pane_id_in_direction, open_command_pane, open_terminal, pipe_message_to_plugin,
-    rename_pane_with_id, rename_tab, rename_tab_with_id, set_pane_borderless, show_pane_with_id,
-    write_chars_to_pane_id, write_to_pane_id, CommandToRun, Direction, MessageToPlugin, PaneId,
-    PipeMessage, PipeSource,
+    rename_pane_with_id, rename_tab, rename_tab_with_id, run_action, set_pane_borderless,
+    show_pane_with_id, write_chars_to_pane_id, write_to_pane_id, CommandToRun, Direction,
+    MessageToPlugin, PaneId, PipeMessage, PipeSource,
 };
 
 use crate::model::{
@@ -924,11 +925,59 @@ impl State {
         let Some(tab) = self.ready(message) else {
             return;
         };
-        let Some(workspace) = tab.workspace.as_ref() else {
-            self.respond(message, MISSING);
-            return;
+        // Directional and stacked panes reuse native placement with the workspace root as cwd.
+        let direction = match message.payload.as_deref().map(str::trim).unwrap_or("") {
+            "" => {
+                let Some(workspace) = tab.workspace.as_ref() else {
+                    self.respond(message, MISSING);
+                    return;
+                };
+                open_terminal(&workspace.root);
+                self.respond(message, OK);
+                return;
+            }
+            "down" => Some(Direction::Down),
+            "right" => Some(Direction::Right),
+            "stacked" => None,
+            _ => {
+                self.respond(message, INVALID);
+                return;
+            }
         };
-        open_terminal(&workspace.root);
+        // Without a workspace, keep the native focused-pane cwd.
+        let command = match (tab.workspace.as_ref(), self.default_shell.as_deref()) {
+            (Some(workspace), Some(shell)) => Some(RunCommandAction {
+                command: shell.into(),
+                cwd: Some(workspace.root.clone().into()),
+                use_terminal_title: true,
+                ..Default::default()
+            }),
+            (Some(_), None) => {
+                self.respond(message, MISSING);
+                return;
+            }
+            (None, _) => None,
+        };
+        let action = match direction {
+            Some(direction) => Action::NewTiledPane {
+                direction: Some(direction),
+                command,
+                pane_name: None,
+                near_current_pane: false,
+                no_focus: false,
+                borderless: None,
+                border_style: None,
+                tab_id: None,
+            },
+            None => Action::NewStackedPane {
+                command,
+                pane_name: None,
+                near_current_pane: false,
+                no_focus: false,
+                tab_id: None,
+            },
+        };
+        run_action(action, BTreeMap::new());
         self.respond(message, OK);
     }
 

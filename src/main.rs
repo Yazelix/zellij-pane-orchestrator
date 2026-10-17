@@ -37,6 +37,7 @@ struct State {
     managed_agent_command_marker: Option<String>,
     right_sidebar_command: Option<RightSidebarCommandConfig>,
     popup_plugin_url: Option<String>,
+    default_shell: Option<String>,
     services: Services,
 }
 
@@ -59,6 +60,10 @@ impl ZellijPlugin for State {
             .get("popup_plugin_url")
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
+        self.default_shell = configuration
+            .get("default_shell")
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
         self.initialize_services(&configuration, &plugin_ids.initial_cwd);
         request_permission(&[
             PermissionType::ReadApplicationState,
@@ -69,6 +74,7 @@ impl ZellijPlugin for State {
             PermissionType::ReadCliPipes,
             PermissionType::MessageAndLaunchOtherPlugins,
             PermissionType::ReadSessionEnvironmentVariables,
+            PermissionType::RunActionsAsUser,
         ]);
         subscribe(&event_subscriptions(self.screen_enabled()));
         self.arm_timer();
